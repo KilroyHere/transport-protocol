@@ -31,10 +31,4 @@ To dissect tcpdump-recorded file, you can use `-r <pcapfile>` option. For exampl
 
     wireshark -X lua_script:./confundo.lua -r confundo.pcap
 
-## TODO
-
-    ###########################################################
-    ##                                                       ##
-    ## REPLACE CONTENT OF THIS FILE WITH YOUR PROJECT REPORT ##
-    ##                                                       ##
-    ###########################################################
+Temporary change to see if git branch restriction on main is enforced.
