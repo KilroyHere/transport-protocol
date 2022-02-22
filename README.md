@@ -31,4 +31,4 @@ To dissect tcpdump-recorded file, you can use `-r <pcapfile>` option. For exampl
 
     wireshark -X lua_script:./confundo.lua -r confundo.pcap
 
-Temporary change to see if git branch restriction on main is enforced. Did not work when done directly from main branch. Let's try from another branch.
+Temporary change to see if git branch restriction on main is enforced. Did not work when done directly from main branch. Let's try from another branch. Third change, now that I included the rule to be applied on administrators.
