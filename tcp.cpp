@@ -86,13 +86,13 @@ void TCPPacket::setString()
   // Setting Payload
   for(int i = 0 ; i < m_payloadLen; i++)
   {
-    m_packetCString[i+12] = m_payload[i];
+    m_packetCString[i+HEADER_LEN] = m_payload[i];
   }
 
   m_packetString.resize(m_totalLength);
   for(int i = 0 ; i < m_totalLength; i++)
   {
-    m_packetString[i] = m_packetCString[i];
+    m_packetString += m_packetCString[i];
   }
 }
 
