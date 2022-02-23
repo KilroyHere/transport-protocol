@@ -6,11 +6,14 @@
 class TCPPacket
 {
 public:
+  // Constructors
   TCPPacket(std::string s);
   TCPPacket(int seq, int ack, int connId, bool ackflag, bool synflag, bool finflag, int payloadLen, std::string payload);
+  // Destructor
+  ~TCPPacket();
 
-  // get functions
-  char * getString(); //Gets the whole Packet as a String
+  // Getter Functions
+  char * getString(); 
   int getAckNum();
   int getSeqNum();
   int getConnId();
@@ -22,12 +25,12 @@ public:
   std::string getPayload();
 
 private:
-  //utility functions
+  // utility Functions
   void setString();
 
-  // same variables
+  // Data Members
   int m_seq, m_ack;
-  int m_connId; // TODO: (0 - 65535) Enforce
+  int m_connId;
   int m_payloadLen;
   int m_totalLength;
   bool m_ackflag, m_synflag, m_finflag;
