@@ -1,4 +1,5 @@
 #include <string>
+#include <bitset>
 #include <thread>
 #include <iostream>
 #include <sys/socket.h>
@@ -35,11 +36,15 @@ void Server::handleConnection()
     packetBuffer[MAX_PACKET_LENGTH] = 0; // mark the end with a null byte 
 
     // convert C string to std::string
-    std::string packet(packetBuffer);
+    std::string packet;
+    for (int i = 0; i < bytesRead; i++) // need the for loop to force null byte in the payload to the packet
+    {
+      packet += packetBuffer[i];
+    }
 
     TCPPacket* p = new TCPPacket(packet); // create new packet from string
-
     int packetConnId = p->getConnId(); // get the connection ID of the packet
+
 
     if (p->isSYN() && packetConnId == 0)
       addNewConnection(p);
@@ -55,8 +60,7 @@ void Server::handleConnection()
     else
     {
       // packet received in a valid connection
-
-      //reset its timer
+      //reset connection timer
       resetTimer(packetConnId);
 
       if (!addPacketToBuffer(packetConnId, p)) // no change to the buffer
@@ -95,54 +99,83 @@ void Server::handleConnection()
  */
 bool Server::addPacketToBuffer(int connId, TCPPacket* p)
 {
+/*
+Several implementations could have been used here in the case that we 
+receive a packet that has fills a gap AND also overwrites on either side.
+One approach would be that if any byte in the range of the packet in the window 
+has already been written to then drop the packet, removing the chance of an overwrite.
+However, the counter argument to that was -- what's the guarantee that the first packet
+I got was not corrupted (since such a case would only arise in the case of a corruption)
+
+Thus, the current implementation is that if there is an overlap in bits, overwrite.
+
+Packets that have overlapping bytes should result in undefined behavior, which is 
+exactly what this implementation would provide, since the order of arrival of the 
+packets is not definite, and the result is therefore indeterminate.
+*/
+
   using namespace std;
   if (p == nullptr) return false; 
-  vector<TCPPacket*>& packetBuffer = m_connectionIdToBuffer[connId];
-  int& nextExpectedSeqNum = m_connectionExpectedSeqNums[connId];
+  vector<char>& connectionBuffer = m_connectionIdToBuffer[connId];
+  bitset<RWND_BYTES>& connectionBitset = m_connectionBitvector[connId];
+  int nextExpectedSeqNum = m_connectionExpectedSeqNums[connId];
 
+  int packetSeqNum = p->getSeqNum();
+  int payloadLen = p->getPayloadLength();
+  char* payloadBuffer = p->getPayload();
 
-  int seqNum = p->getSeqNum();
-  int currentSeqNum = nextExpectedSeqNum;
-  for(int i=0; i < packetBuffer.size(); i++)
+  if (nextExpectedSeqNum + RWND_BYTES < packetSeqNum + payloadLen) return false; // runs out of bounds
+  if (packetSeqNum < nextExpectedSeqNum) return false; // runs before bounds
+
+  for (int i=0; i < payloadLen; i++)
   {
-    if (currentSeqNum == seqNum)
-    {
-      if (packetBuffer[i]==nullptr) // the slot was empty
-      {
-        packetBuffer[i] = p;
-        return true; // successful addition to the buffer
-      }
-      else
-        return false;
-    }
-    currentSeqNum += MAX_PAYLOAD_LENGTH; // sequence number would increase by this number except for the last packet
+    // TODO: may need to use the sequence number reset wrap around value eventually with modulus 
+    connectionBuffer[i + packetSeqNum - nextExpectedSeqNum] = payloadBuffer[i];
+    connectionBitset[i + packetSeqNum - nextExpectedSeqNum] = 1; // now mark as used, regardless of overwrite
   }
-  return false;
 }
 
 /**
  * @brief Writes consecutive packets that have arrived in the buffer from the start, updates next expected sequence number, and initializes next slots in buffer to nullptr
  * 
- * @return number of packets that were written
+ * @return number of bytes that were written
  */
 int Server::flushBuffer(int connId)
 {
   using namespace std;
-  vector<TCPPacket*>& packetBuffer = m_connectionIdToBuffer[connId];
+  vector<char>& connectionBuffer = m_connectionIdToBuffer[connId];
+  bitset<RWND_BYTES>& connectionBitset = m_connectionBitvector[connId];
   int& nextExpectedSeqNum = m_connectionExpectedSeqNums[connId];
 
-  if (packetBuffer.size() < 1) return -1; // shouldn't even be a thing
-  int numFlushed = 0;
-  while (packetBuffer[0] != nullptr)
+  // find the number of bytes to write
+  int bytesToWrite = 0;
+  for (; bytesToWrite < RWND_BYTES; bytesToWrite++)
+    if (connectionBitset[bytesToWrite]==0)
+      break;
+  
+  char* outputBuffer = new char[bytesToWrite+1];
+  std::copy(connectionBuffer.begin(), connectionBuffer.begin() + bytesToWrite, outputBuffer);
+  outputBuffer[bytesToWrite] = 0; // just for safety
+
+  writeToFile(outputBuffer, bytesToWrite);
+  nextExpectedSeqNum += bytesToWrite;     // update the next expected sequence number 
+
+  delete outputBuffer;
+  outputBuffer = nullptr;
+
+  for(int i=0; i< RWND_BYTES - bytesToWrite; i++) // last value of i will be RWND_BYTES - bytesToWriite - 1 
   {
-    writeToFile(packetBuffer[0]->getPayload());
-    nextExpectedSeqNum += packetBuffer[0]->getSeqNum() + packetBuffer[0]->getPayloadLength();
-    delete packetBuffer[0]; // call the destructor on TCPPacket object
-    packetBuffer.erase(packetBuffer.begin()); // remove the first element
-    packetBuffer.push_back(nullptr); // window advanced to the next packet
-    numFlushed++;
+    connectionBuffer[i] = connectionBuffer[i + bytesToWrite];
+    connectionBitset[i] = connectionBitset[i + bytesToWrite];
   }
-  return numFlushed;
+
+  for (int i= RWND_BYTES - bytesToWrite; i < RWND_BYTES; i++)
+  {
+    connectionBuffer[i] = 0;
+    connectionBitset[i] = 0;
+  }
+
+  return bytesToWrite;
 }
 
 int main()
