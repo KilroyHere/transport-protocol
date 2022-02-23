@@ -7,52 +7,25 @@
 #include "constants.cpp"
 
 /*------------------------------------------------------------
-UTILITY FUNCTIONS
--------------------------------------------------------------*/
-
-void uint32ToChar(uint32_t num, char *arr, bool bigEndian)
-{
-  uint32_t number;
-  if (bigEndian)
-    number = htobe32(num); // Changing to Big Endian
-  else
-    number = num; // Keeping the Endianness same
-  // Setting Char Array
-  arr[0] = number & 0xFF;
-  arr[1] = (number >> 8) & 0xFF;
-  arr[2] = (number >> 16) & 0xFF;
-  arr[3] = (number >> 24) & 0xFF;
-}
-
-void uint16ToChar(uint16_t num, char *arr, bool bigEndian)
-{
-  uint16_t number;
-  if (bigEndian)
-    number = htobe16(num); // Changing to Big Endian
-  else
-    number = num; // Keeping the Endianness same
-  // Setting Char Array
-  arr[0] = number & 0xFF;
-  arr[1] = (number >> 8) & 0xFF;
-}
-
-/*------------------------------------------------------------
-CONSTRUCTOR
+CONSTRUCTORS
 -------------------------------------------------------------*/
 
 TCPPacket::TCPPacket(std::string s)
 {
   m_totalLength = s.size();
-  m_payloadLen = m_totalLength - HEADER_LEN;
-  m_payload.resize(m_payloadLen);
+  m_packetString = s;
   m_packetCString = new char[m_totalLength];
   for (int i = 0; i < m_totalLength; i++)
   {
     m_packetCString[i] = s[i]; // Can't use c_str because null bye characters
   }
+
+  m_payloadLen = m_totalLength - HEADER_LEN;
+  m_payload.resize(m_payloadLen);
+  
   for(int i = 0 ; i < m_payloadLen; i++)
   {
-    m_payload[i] = m_packetCString[i+HEADER_LEN-1];
+    m_payload[i] = m_packetCString[i+HEADER_LEN];
   } 
 
   memcpy(&m_seq, m_packetCString, sizeof(m_seq));
@@ -64,9 +37,8 @@ TCPPacket::TCPPacket(std::string s)
   memcpy(&m_connId, m_packetCString + 8, sizeof(m_connId));
   m_connId = be16toh(m_connId);
 
-  uint16_t flagField;
-  memcpy(&flagField, m_packetCString + 10, sizeof(flagField));
-  flagField = be16toh(flagField);
+  char flagField = m_packetCString[11];
+
   m_ackflag = ((flagField & 4) >> 2) ? true : false; // 4 = b100
   m_synflag = (flagField & 2) >> 1 ? true : false;   // 2 = b010
   m_finflag = (flagField & 1) ? true : false;        // 1 = b001
@@ -93,21 +65,35 @@ void TCPPacket::setString()
   uint32_t ack = (uint32_t)m_ack;
   uint16_t connId = (uint16_t)m_connId;
 
-  uint16_t ackbit = (m_ackflag) ? 4 : 0;
-  uint16_t synbit = (m_synflag) ? 2 : 0;
-  uint16_t finbit = (m_finflag) ? 1 : 0;
-  uint16_t flagField = ackbit + synbit + finbit;
+  char ackbit = (m_ackflag) ? 4 : 0;
+  char synbit = (m_synflag) ? 2 : 0;
+  char finbit = (m_finflag) ? 1 : 0;
+  char flagField = ackbit + synbit + finbit;
 
   // Setting Header
-  uint32ToChar(seq, m_packetCString, true);
-  uint32ToChar(ack, m_packetCString + 4, true);
-  uint16ToChar(connId, m_packetCString + 8, true);
-  uint16ToChar(flagField, m_packetCString + 10, true);
+  seq = htobe32(seq);
+  memcpy(m_packetCString,&seq,sizeof(seq));
+
+  ack = htobe32(ack);
+  memcpy(m_packetCString+4,&ack,sizeof(ack));
+
+  connId = htobe16(connId);
+  memcpy( m_packetCString+8,&connId,sizeof(connId));
+
+  m_packetCString[10] = 0;
+  m_packetCString[11] = flagField;
 
   // Setting Payload
-  strcpy(m_packetCString + HEADER_LEN, m_payload.c_str());
-  // Debugging Purposes
-  // "|%02hhx"
+  for(int i = 0 ; i < m_payloadLen; i++)
+  {
+    m_packetCString[i+12] = m_payload[i];
+  }
+
+  m_packetString.resize(m_totalLength);
+  for(int i = 0 ; i < m_totalLength; i++)
+  {
+    m_packetString[i] = m_packetCString[i];
+  }
 }
 
 /*------------------------------------------------------------
@@ -122,11 +108,17 @@ TCPPacket::~TCPPacket()
 /*------------------------------------------------------------
 GETTER FUNCTIONS
 -------------------------------------------------------------*/
-
-char *TCPPacket::getString()
+std::string TCPPacket::getString()
 {
+  return m_packetString;
+}
+
+char *TCPPacket::getCString(int &length) //Currently returns pointer to m_packetCString
+{
+  length = m_totalLength;
   return m_packetCString;
 }
+
 
 int TCPPacket::getAckNum()
 {

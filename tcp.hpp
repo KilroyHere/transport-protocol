@@ -13,7 +13,7 @@ public:
   ~TCPPacket();
 
   // Getter Functions
-  char * getString(); 
+
   int getAckNum();
   int getSeqNum();
   int getConnId();
@@ -22,8 +22,9 @@ public:
   bool isACK();
   bool isFIN();
   bool isSYN();
+  std::string getString(); 
   std::string getPayload();
-
+  char* getCString(int &length);
 private:
   // utility Functions
   void setString();
@@ -35,7 +36,9 @@ private:
   int m_totalLength;
   bool m_ackflag, m_synflag, m_finflag;
   std::string m_payload;
+  std:: string m_packetString;
   char* m_packetCString;
+
 };
 
 #endif //TCP_HPP
