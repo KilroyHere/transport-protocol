@@ -1,3 +1,6 @@
+#ifndef UTILITIES_CPP
+#define UTILITIES_CPP
+
 #include <string>
 
 //////////// FUNCTION DEFINITION
@@ -26,3 +29,4 @@ std::string convertCStringtoStandardString(char* buffer, int len)
     return ret;
 }
 ///////////
+#endif

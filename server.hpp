@@ -1,3 +1,6 @@
+#ifndef SERVER_HPP
+#define SERVER_HPP
+
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -46,3 +49,5 @@ class Server
     std::unordered_map<int,int> m_connectionFileDescriptor;
   	std::unordered_map<int, time_t> m_connectionTimer; //TODO: timer will be replaced by a different type
 };
+
+#endif SERVER_HPP
