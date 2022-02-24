@@ -50,4 +50,4 @@ class Server
   	std::unordered_map<int, time_t> m_connectionTimer; //TODO: timer will be replaced by a different type
 };
 
-#endif SERVER_HPP
+#endif //SERVER_HPP
