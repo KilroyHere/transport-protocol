@@ -16,7 +16,7 @@ class Server
   	// #1
   	Server(int port, std::string saveFolder);
   	~Server(); // closes the socket
-  	void run(); // engine function of the server
+  	void run(); // engine function of the server //#3
   	int outputToStdout(std::string message);
   	int outputToStderr(std::string message);
   	int writeToFile(char* message, int len);
