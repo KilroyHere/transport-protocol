@@ -35,6 +35,10 @@ class Server
   	
   private:
   	int m_sockFd;
+
+	void closeTimedOutConnections();
+	void moveWindow(int connId, int bytes);
+
     std::unordered_map<int, std::vector<char> > m_connectionIdToBuffer; // maps connection ID to packet buffer
 	std::unordered_map<int, std::bitset<RWND_BYTES> > m_connectionBitvector; // maps connection ID to packet buffer bitvector
     std::unordered_map<int,int> m_connectionExpectedSeqNums; // maps connection ID to that connection's next expected sequence

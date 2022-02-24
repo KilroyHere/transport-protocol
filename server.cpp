@@ -7,8 +7,53 @@
 #include <unordered_map>
 #include "server.hpp"
 #include "constants.cpp"
+#include "utilities.cpp"
 
-// SERVER IMPLEMENTATION 
+// SERVER IMPLEMENTATION
+
+/**
+ * @brief Enumerate through timers and if any timer has timed out, release resources for that connection
+ * 
+ */
+void Server::closeTimedOutConnections()
+{
+    //TODO: replace this with final implementation of timer hashmap
+    for(auto it = m_connectionTimer.begin(); it!=m_connectionTimer.end(); it++)
+    {
+      if (!checkTimer(it->first)) // check timer by connection id
+      {  // timer run out
+        closeConnection(it->first);
+      }
+    }
+}
+
+/**
+ * @brief Shift the window a certain number of bytes ahead for a connection
+ * 
+ * @param id connection id 
+ * @param bytes number of bytes to shift winodw by
+ */
+void Server::moveWindow(int connId, int bytes)
+{
+  using namespace std;
+  vector<char>& connectionBuffer = m_connectionIdToBuffer[connId];
+  bitset<RWND_BYTES>& connectionBitset = m_connectionBitvector[connId];
+
+  if (bytes >= connectionBuffer.size()) return;
+
+  for(int i=0; i< RWND_BYTES - bytes; i++) // last value of i will be RWND_BYTES - bytesToWriite - 1 
+  {
+    connectionBuffer[i] = connectionBuffer[i + bytes];
+    connectionBitset[i] = connectionBitset[i + bytes];
+  }
+
+  for (int i= RWND_BYTES - bytes; i < RWND_BYTES; i++)
+  {
+    connectionBuffer[i] = 0;
+    connectionBitset[i] = 0;
+  }
+}
+
 /**
  * @brief Function that handles all of the incoming connections
  * 
@@ -18,16 +63,7 @@ void Server::handleConnection()
   using namespace std;
   while (true) // since server will run indefinitely, and we're not using multithreading/forking
   {
-
-    //TODO: replace this with final implementation of timer hashmap
-    for(std::unordered_map<int, time_t>::iterator it = m_connectionTimer.begin(); it!=m_connectionTimer.end(); it++)
-    {
-      if (!checkTimer(it->first)) // check timer by connection id
-      {  // timer run out
-        closeConnection(it->first);
-      }
-    }
-
+    closeTimedOutConnections(); // check and close any timed out connection every iteration
     // prepare to read incoming packet
     char packetBuffer[MAX_PACKET_LENGTH+1]; // last byte nullbyte
     sockaddr clientInfo; // needed to send response
@@ -36,11 +72,7 @@ void Server::handleConnection()
     packetBuffer[MAX_PACKET_LENGTH] = 0; // mark the end with a null byte 
 
     // convert C string to std::string
-    std::string packet;
-    for (int i = 0; i < bytesRead; i++) // need the for loop to force null byte in the payload to the packet
-    {
-      packet += packetBuffer[i];
-    }
+    std::string packet = convertCStringtoStandardString(packetBuffer, bytesRead);
 
     TCPPacket* p = new TCPPacket(packet); // create new packet from string
     int packetConnId = p->getConnId(); // get the connection ID of the packet
@@ -49,9 +81,8 @@ void Server::handleConnection()
     if (p->isSYN() && packetConnId == 0)
       addNewConnection(p);
     else if (m_connectionIdToBuffer.find(packetConnId) == m_connectionIdToBuffer.end() || p->isSYN())
-    { // there should be no other reason for us to find a SYN unless we're not adding a new connection
-      delete p; // discard the packet
-      p = nullptr; // safety is our #1 priority :) 
+    { // there should be no other reason for us to find a SYN unless we're not adding a new connection 
+      // do nothing, packet will be deleted
     }
     else if (p->isFIN())
     {
@@ -59,19 +90,22 @@ void Server::handleConnection()
     }
     else
     {
-      // packet received in a valid connection
+      // packet received in a valid connection during steady state
       //reset connection timer
       resetTimer(packetConnId);
 
       if (!addPacketToBuffer(packetConnId, p)) // no change to the buffer
       {
-        delete p; // discard the packet
-        p = nullptr;
+          // do nothing, packet will be deleted
       }
       else
       {
         flushBuffer(packetConnId); // packets written to file and next expected sequence number automatically updated
       }
+
+      delete p; 
+      p = nullptr;
+
       // if reached this block, then packet was valid and ACK should be sent
       TCPPacket* ackPacket = new TCPPacket(
         m_connectionServerSeqNums[packetConnId],      // sequence number 
@@ -133,6 +167,7 @@ packets is not definite, and the result is therefore indeterminate.
     connectionBuffer[i + packetSeqNum - nextExpectedSeqNum] = payloadBuffer[i];
     connectionBitset[i + packetSeqNum - nextExpectedSeqNum] = 1; // now mark as used, regardless of overwrite
   }
+  return true; 
 }
 
 /**
@@ -149,9 +184,7 @@ int Server::flushBuffer(int connId)
 
   // find the number of bytes to write
   int bytesToWrite = 0;
-  for (; bytesToWrite < RWND_BYTES; bytesToWrite++)
-    if (connectionBitset[bytesToWrite]==0)
-      break;
+  for (; bytesToWrite < RWND_BYTES && connectionBitset[bytesToWrite] == 1; bytesToWrite++);
   
   char* outputBuffer = new char[bytesToWrite+1];
   std::copy(connectionBuffer.begin(), connectionBuffer.begin() + bytesToWrite, outputBuffer);
@@ -163,17 +196,7 @@ int Server::flushBuffer(int connId)
   delete outputBuffer;
   outputBuffer = nullptr;
 
-  for(int i=0; i< RWND_BYTES - bytesToWrite; i++) // last value of i will be RWND_BYTES - bytesToWriite - 1 
-  {
-    connectionBuffer[i] = connectionBuffer[i + bytesToWrite];
-    connectionBitset[i] = connectionBitset[i + bytesToWrite];
-  }
-
-  for (int i= RWND_BYTES - bytesToWrite; i < RWND_BYTES; i++)
-  {
-    connectionBuffer[i] = 0;
-    connectionBitset[i] = 0;
-  }
+  moveWindow(connId, bytesToWrite);
 
   return bytesToWrite;
 }
