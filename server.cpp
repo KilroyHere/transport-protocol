@@ -78,7 +78,7 @@ void Server::handleConnection()
     int packetConnId = p->getConnId(); // get the connection ID of the packet
 
 
-    if (p->isSYN() && packetConnId == 0)
+    if (p->isSYN())
       addNewConnection(p);
     else if (m_connectionIdToBuffer.find(packetConnId) == m_connectionIdToBuffer.end() || p->isSYN())
     { // there should be no other reason for us to find a SYN unless we're not adding a new connection 
