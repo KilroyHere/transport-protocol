@@ -7,18 +7,21 @@
 #include <netinet/in.h>
 #include <bitset>
 #include "constants.cpp"
-#include <time.h>
 class TCPPacket;
 
-struct TCB
+
+// typedef 
+typedef std::chrono::time_point<std::chrono::system_clock> c_time;
+
+struct TCB 
 {
-	TCB()
+	TCB(int expectedSeqNum, int fileDescriptor, int state, bool syn)
 	{
 		connectionBuffer = std::vector<char>(RWND_BYTES);
 		connectionServerSeqNum = INIT_SERVER_SEQ_NUM;
-		connectionExpectedSeqNum = INIT_CLIENT_SEQ_NUM;
-		connectionState = -1;
-		//TODO: ADD TIMER
+		connectionExpectedSeqNum = expectedSeqNum;
+		connectionState = state;
+		isSYN = syn;
 	}
 
 	std::vector<char> connectionBuffer;			   // Connection's payload buffer for each packet received
@@ -26,8 +29,10 @@ struct TCB
 	int connectionExpectedSeqNum;				   // Next expected Seq Number from client
 	int connectionServerSeqNum;					   // Seq number to be sent in server ack packet
 	int connectionFileDescriptor;				   // Output target file
-	time_t connectionTimer;						   // connection timer at server side (Connection closes if this runs out)
+	c_time connectionTimer;						   // connection timer at server side (Connection closes if this runs out)
 	int connectionState;
+	TCPPacket *finPacket;
+
 };
 
 class Server
@@ -43,10 +48,9 @@ public:
 	void sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p);
 
 	// #2
-	void addNewConnection(TCPPacket *p);
-	void startTimer(int connId);
-	void resetTimer(int connId);
-	bool checkTimer(int connId); //false if timer runs out, true if still valid
+	void addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen);
+	void setTimer(int connId);
+	bool checkTimer(int connId, float timerLimit); //false if timer runs out, true if still valid
 	void handleFin(TCPPacket *p);
 	void closeConnection(int connId); // also will remove the connection ID entry from hashmap
 
@@ -58,7 +62,7 @@ public:
 private:
 	int m_sockFd;
 	int nextAvailableConnectionId = 1;
-	void closeTimedOutConnections();
+	void closeTimedOutConnectionsAndRetransmitFIN();
 	void moveWindow(int connId, int bytes);
 
 	std::unordered_map<int, TCB *> m_connectionIdToTCB;
