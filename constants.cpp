@@ -11,7 +11,8 @@ const int HEADER_LEN = 12;
 
 
 // Connection States 
-int const CONNECTION_NOT_INITIATED = -1;
+int const FIN_RECEIVED = -1;
 int const AWAITING_ACK = 0;
 int const CONNECTION_ESTABLISHED = 1;
+
 //TCP CONSTANTS

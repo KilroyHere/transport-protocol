@@ -5,8 +5,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unordered_map>
-#include <iostream>
-#include <fstream>
+#include <fcntl.h>
+#include <chrono>
+#include <ctime>
 #include "server.hpp"
 #include "constants.cpp"
 #include "utilities.cpp"
@@ -18,14 +19,20 @@
  * @brief Enumerate through timers and if any timer has timed out, release resources for that connection
  * 
  */
-void Server::closeTimedOutConnections()
+void Server::closeTimedOutConnectionsAndRetransmitFIN()
 {
   //TODO: replace this with final implementation of timer hashmap
   for (auto it = m_connectionIdToTCB.begin(); it != m_connectionIdToTCB.end(); it++)
   {
-    if (!checkTimer(it->first)) // check timer by connection id
+    if (!checkTimer(it->first, 10)) // check timer by connection id
     {                           // timer run out
       closeConnection(it->first);
+    }
+
+    if (it->second->connectionState == FIN_RECEIVED && !checkTimer(it->first, 0.5)) 
+    {                           
+      sendPacket(&clientInfo, clientInfoLen, it->second->finPacket);
+      setTimer(it->first);
     }
   }
 }
@@ -67,7 +74,7 @@ void Server::handleConnection()
   using namespace std;
   while (true) // since server will run indefinitely, and we're not using multithreading/forking
   {
-    closeTimedOutConnections(); // check and close any timed out connection every iteration
+    closeTimedOutConnectionsAndRetransmitFIN(); // check and close any timed out connection every iteration
     // prepare to read incoming packet
     char packetBuffer[MAX_PACKET_LENGTH + 1]; // last byte nullbyte
     sockaddr clientInfo;                      // needed to send response
@@ -81,33 +88,35 @@ void Server::handleConnection()
     TCPPacket *p = new TCPPacket(packet); // create new packet from string
     int packetConnId = p->getConnId();    // get the connection ID of the packet
 
-    if (p->isSYN() || p->isACK())
-      addNewConnection(p);
-    else if (m_connectionIdToTCB.find(packetConnId) == m_connectionIdToBuffer.end() || p->isSYN())
-    { // there should be no other reason for us to find a SYN unless we're not adding a new connection
+    /*
+    addNewConnection(p);
+    handleFin(p);
+    if (payload)
+      processing further potentially based on state
+    */
+
+    addNewConnection(p, clientInfo, clientInfoLen);
+    handleFin(p);
+    if (m_connectionIdToTCB.find(packetConnId) == m_connectionIdToBuffer.end())
+    { 
+      // there should be no other reason for us to find a SYN unless we're not adding a new connection
       // do nothing, packet will be deleted
-    }
-    else if (p->isFIN())
-    {
-      handleFin(p);
     }
     else
     {
-      // packet received in a valid connection during steady state
-      //reset connection timer
-      resetTimer(packetConnId);
-
-      if (!addPacketToBuffer(packetConnId, p)) // no change to the buffer
-      {
-        // do nothing, packet will be deleted
-      }
-      else
-      {
-        flushBuffer(packetConnId); // packets written to file and next expected sequence number automatically updated
-      }
+      setTimer(packetConnId);
+      addPacketToBuffer(packetConnId, p);
+      flushBuffer(packetConnId);
 
       delete p;
       p = nullptr;
+
+      // check if the a SYN-ACK needs to be sent 
+      bool synFlag = false;
+      if(m_connectionIdToTCB[packetConnId]->connectionState == ACK_AWAITING)
+      {
+        synFlag = true;
+      }
 
       // if reached this block, then packet was valid and ACK should be sent
       TCPPacket *ackPacket = new TCPPacket(
@@ -115,8 +124,8 @@ void Server::handleConnection()
           m_connectionIdToTCB[packetConnId]->connectionExpectedSeqNum, // ack number
           packetConnId,                                                // connection id
           true,                                                        // is an ACK
-          false,                                                       // not a SYN
-          false,                                                       // not a FIN
+          synFlag,                                                       // decided by synFlag
+          false,                                                       // is not FIN
           0,                                                           // no payload
           "");
       sendPacket(&clientInfo, clientInfoLen, ackPacket);
@@ -152,9 +161,9 @@ packets is not definite, and the result is therefore indeterminate.
   using namespace std;
   if (p == nullptr)
     return false;
-  vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connection;
-  bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId];
-  int nextExpectedSeqNum = m_connectionExpectedSeqNums[connId];
+  vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
+  bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
+  int nextExpectedSeqNum = m_connectionIdToTCB[connId]->connectionExpectedSeqNum;
 
   int packetSeqNum = p->getSeqNum();
   int payloadLen = p->getPayloadLength();
@@ -164,6 +173,8 @@ packets is not definite, and the result is therefore indeterminate.
     return false; // runs out of bounds
   if (packetSeqNum < nextExpectedSeqNum)
     return false; // runs before bounds
+  if (m_connectionIdToTCB[connId]->connectionState == FIN_RECEIVED)
+    return false;
 
   for (int i = 0; i < payloadLen; i++)
   {
@@ -209,19 +220,103 @@ int Server::flushBuffer(int connId)
 /**
  * @brief 
  * 
- * @return int 
+ * @return bool
  */
-void addNewConnection(TCPPacket *p)
+bool addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen)
 {
   if (p->isSYN() && p->getConnId() == 0) // new connection id
   {
-    // add a new TCB in the unordered map
-    m_connectionIdToTCB[nextAvailableConnectionId] = new TCB();
-    TCB *tcb = m_connectionIdToTCB[nextAvailableConnectionId];
+    // Get the connection ID 
+    int packetConnId = nextAvailableConnectionId;
+
+    // create an output file 
+    // TODO: assumed existance of save directory
+    string pathName = "~/save/" + std::to_string(packetConnId) + ".file";
+    int fd = open(pathName.c_str(), O_CREAT);
+
+    // set up TCB and start timer
+    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, AWAITING_ACK, true);
+    m_connectionIdToTCB[packetConnId]->clientInfo = clientInfo;
+    m_connectionIdToTCB[packetConnId]->clientInfoLen = clientInfoLen;
+    startTimer(packetConnId);
+
+    ++nextAvailableConnectionId; //update the next available connection Id
+    return true;
   }
-  /*
-  Client sends ACK packets only in response to SYN-ACK PACKETS with no payload in them.
-  */
+
+  // TODO: Make connection state an enum
+
+  // Update Connection state in case of an ACK 
+  else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == AWAITING_ACK) // new connection id
+  {
+    m_connectionIdToTCB[p->getConnId()]->connectionState = CONNECTION_ESTABLISHED;
+    return true;
+  }
+
+  else
+  {
+    return false;
+  }
+}
+
+/**
+ * @brief 
+ */
+void closeConnection(int connId)
+{
+  // delete TCB Block 
+  delete m_connectionIdToTCB[p->getConnId()];
+  m_connectionIdToTCB[p->getConnId()] = nullptr;
+
+  // remove entry 
+  m_connectionIdToTCB.erase ( m_connectionIdToTCB.find(p->getConnId()), m_connectionIdToTCB.end() );
+}
+
+void setTimer(int connId)
+{
+  m_connectionIdToTCB[connId]->connectionTimer = std::chrono::system_clock::now();
+}
+
+bool checkTimer(int connId, float timerLimit)
+{
+  c_time current_time = std::chrono::system_clock::now();
+  c_time start_time = m_connectionIdToTCB[connId]->connectionTimer;
+  std::chrono::duration<double> elapsed_time = current_time - start_time;
+  int elapsed_seconds = elapsed_time.count();
+  
+  return (elapsed_seconds >= timerLimit);
+}
+
+void handleFin(TCPPacket *p)
+{
+  if(p->isFIN())
+  {
+    // change state to FIN_RECEIVED -> wait for ACK for FIN-ACK
+    m_connectionIdToTCB[connId]->connectionState = FIN_RECEIVED;
+    ++m_connectionIdToTCB[p->getConnId()]->nextExpectedSeqNum; // updating expected sequence number by 1
+
+    TCPPacket *finPacket = new TCPPacket(
+          m_connectionIdToTCB[packetConnId]->connectionServerSeqNum,   // sequence number
+          m_connectionIdToTCB[packetConnId]->connectionExpectedSeqNum, // ack number
+          packetConnId,                                                // connection id
+          true,                                                        // is ACK
+          false,                                                       // is not SYN
+          true,                                                       // is FIN
+          0,                                                           // no payload
+          "");
+    sendPacket(&clientInfo, clientInfoLen, finPacket);
+
+    // save the FIN packet
+    m_connectionIdToTCB[connId]->finPacket = finPacket;
+    setTimer(p->getConnId()); // set timer 
+  }
+
+  else if(p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == FIN_RECEIVED)
+  {
+    delete m_connectionIdToTCB[p->getConnId()]->finPacket;
+    m_connectionIdToTCB[p->getConnId()]->finPacket = nullptr;
+    closeConnection(p->getConnId());
+  }
 }
 
 int main()
