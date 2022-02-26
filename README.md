@@ -1,4 +1,4 @@
-# CS118 Project 2
+# CS118 Project 2.
 
 ## Makefile
 
