@@ -39,7 +39,7 @@ public:
 	void run(); // engine function of the server //#3
 	int outputToStdout(std::string message);
 	int outputToStderr(std::string message);
-	int writeToFile(char *message, int len);
+	int writeToFile(int connId, char *message, int len); 
 	void sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p);
 
 	// #2

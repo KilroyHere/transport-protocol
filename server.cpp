@@ -191,11 +191,12 @@ int Server::flushBuffer(int connId)
   for (; bytesToWrite < RWND_BYTES && connectionBitset[bytesToWrite] == 1; bytesToWrite++)
     ;
 
-  char *outputBuffer = new char[bytesToWrite + 1];
+  char *outputBuffer = new char[bytesToWrite + 1]; 
+
   std::copy(connectionBuffer.begin(), connectionBuffer.begin() + bytesToWrite, outputBuffer);
   outputBuffer[bytesToWrite] = 0; // just for safety
-
-  writeToFile(outputBuffer, bytesToWrite);
+  
+  writeToFile(connId, outputBuffer, bytesToWrite);
   nextExpectedSeqNum += bytesToWrite; // update the next expected sequence number
 
   delete outputBuffer;
@@ -223,6 +224,20 @@ void addNewConnection(TCPPacket *p)
   Client sends ACK packets only in response to SYN-ACK PACKETS with no payload in them.
   */
 }
+
+	int Server::outputToStdout(std::string message)
+  {
+    cout << message;
+  }
+	int Server::outputToStderr(std::string message)
+  {
+    cerr << message;
+  }
+
+  void Server::sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p)
+  {
+
+  }
 
 int main()
 {
