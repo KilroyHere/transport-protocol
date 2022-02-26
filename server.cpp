@@ -5,9 +5,12 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unordered_map>
+#include <iostream>
+#include <fstream>
 #include "server.hpp"
 #include "constants.cpp"
 #include "utilities.cpp"
+#include "tcp.cpp"
 
 // SERVER IMPLEMENTATION
 
@@ -18,7 +21,7 @@
 void Server::closeTimedOutConnections()
 {
   //TODO: replace this with final implementation of timer hashmap
-  for (auto it = m_connectionTimer.begin(); it != m_connectionTimer.end(); it++)
+  for (auto it = m_connectionIdToTCB.begin(); it != m_connectionIdToTCB.end(); it++)
   {
     if (!checkTimer(it->first)) // check timer by connection id
     {                           // timer run out
@@ -36,8 +39,8 @@ void Server::closeTimedOutConnections()
 void Server::moveWindow(int connId, int bytes)
 {
   using namespace std;
-  vector<char> &connectionBuffer = m_connectionIdToBuffer[connId];
-  bitset<RWND_BYTES> &connectionBitset = m_connectionBitvector[connId];
+  vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
+  bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
 
   if (bytes >= connectionBuffer.size())
     return;
@@ -78,9 +81,9 @@ void Server::handleConnection()
     TCPPacket *p = new TCPPacket(packet); // create new packet from string
     int packetConnId = p->getConnId();    // get the connection ID of the packet
 
-    if (p->isSYN())
+    if (p->isSYN() || p->isACK())
       addNewConnection(p);
-    else if (m_connectionIdToBuffer.find(packetConnId) == m_connectionIdToBuffer.end() || p->isSYN())
+    else if (m_connectionIdToTCB.find(packetConnId) == m_connectionIdToBuffer.end() || p->isSYN())
     { // there should be no other reason for us to find a SYN unless we're not adding a new connection
       // do nothing, packet will be deleted
     }
@@ -108,13 +111,13 @@ void Server::handleConnection()
 
       // if reached this block, then packet was valid and ACK should be sent
       TCPPacket *ackPacket = new TCPPacket(
-          m_connectionServerSeqNums[packetConnId],   // sequence number
-          m_connectionExpectedSeqNums[packetConnId], // ack number
-          packetConnId,                              // connection id
-          true,                                      // is an ACK
-          false,                                     // not a SYN
-          false,                                     // not a FIN
-          0,                                         // no payload
+          m_connectionIdToTCB[packetConnId]->connectionServerSeqNum,   // sequence number
+          m_connectionIdToTCB[packetConnId]->connectionExpectedSeqNum, // ack number
+          packetConnId,                                                // connection id
+          true,                                                        // is an ACK
+          false,                                                       // not a SYN
+          false,                                                       // not a FIN
+          0,                                                           // no payload
           "");
       sendPacket(&clientInfo, clientInfoLen, ackPacket);
       delete ackPacket;
@@ -149,8 +152,8 @@ packets is not definite, and the result is therefore indeterminate.
   using namespace std;
   if (p == nullptr)
     return false;
-  vector<char> &connectionBuffer = m_connectionIdToBuffer[connId];
-  bitset<RWND_BYTES> &connectionBitset = m_connectionBitvector[connId];
+  vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connection;
+  bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId];
   int nextExpectedSeqNum = m_connectionExpectedSeqNums[connId];
 
   int packetSeqNum = p->getSeqNum();
@@ -179,9 +182,9 @@ packets is not definite, and the result is therefore indeterminate.
 int Server::flushBuffer(int connId)
 {
   using namespace std;
-  vector<char> &connectionBuffer = m_connectionIdToBuffer[connId];
-  bitset<RWND_BYTES> &connectionBitset = m_connectionBitvector[connId];
-  int &nextExpectedSeqNum = m_connectionExpectedSeqNums[connId];
+  vector<char> &connectionBuffer = m_connectionIdToBuffer[connId]->connectionBuffer;
+  bitset<RWND_BYTES> &connectionBitset = m_connectionIdToBuffer[connId]->connectionBitVector;
+  int &nextExpectedSeqNum = m_connectionIdToBuffer[connId]->connectionExpectedSeqNum;
 
   // find the number of bytes to write
   int bytesToWrite = 0;
@@ -203,9 +206,25 @@ int Server::flushBuffer(int connId)
   return bytesToWrite;
 }
 
+/**
+ * @brief 
+ * 
+ * @return int 
+ */
+void addNewConnection(TCPPacket *p)
+{
+  if (p->isSYN() && p->getConnId() == 0) // new connection id
+  {
+    // add a new TCB in the unordered map
+    m_connectionIdToTCB[nextAvailableConnectionId] = new TCB();
+    TCB *tcb = m_connectionIdToTCB[nextAvailableConnectionId];
+  }
+  /*
+  Client sends ACK packets only in response to SYN-ACK PACKETS with no payload in them.
+  */
+}
+
 int main()
 {
   std::cerr << "server is not implemented yet" << std::endl;
 }
-
-// hello world - testing branch
