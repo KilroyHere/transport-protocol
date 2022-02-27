@@ -11,7 +11,13 @@ enum connectionState // Connection States enum
 	FIN_RECEIVED
 } ConnectionState;
 
-
+enum AddToBufferReturn
+{
+	PACKET_ADDED,
+	PACKET_DUPLICATE,
+	PACKET_DROPPED,
+	PACKET_NULL
+};
 // common constants 
 const int MAX_PACKET_LENGTH = 524;
 const int MAX_PAYLOAD_LENGTH = 512;

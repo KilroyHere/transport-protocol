@@ -61,7 +61,7 @@ public:
 	bool handleFin(TCPPacket *p);
 	void closeConnection(int connId); // also will remove the connection ID entry from hashmap
 	void handleConnection();
-	bool addPacketToBuffer(int connId, TCPPacket *p);
+	int addPacketToBuffer(int connId, TCPPacket *p);
 	int flushBuffer(int connId);
 
 private:

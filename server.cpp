@@ -1,4 +1,5 @@
 #include <string>
+#include <string.h>
 #include <bitset>
 #include <thread>
 #include <iostream>
@@ -158,7 +159,7 @@ void Server::handleConnection()
     {
       // set timer for packets to detect 10s inactivity of connection
       setTimer(packetConnId);
-      bool packetAdded = addPacketToBuffer(packetConnId, p);
+      int returnValue = addPacketToBuffer(packetConnId, p);
       flushBuffer(packetConnId);
 
       // check if the a SYN-ACK needs to be sent
@@ -167,8 +168,12 @@ void Server::handleConnection()
       {
         synFlag = true;
       }
+      bool isDup = returnValue == PACKET_DUPLICATE;
+      bool isDropped = returnValue == PACKET_DROPPED;
 
-      if (!packetAdded)
+      printPacket(p, true, isDropped, isDup); // for receipt of the packet receive
+
+      if (returnValue == PACKET_ADDED || returnValue == PACKET_DUPLICATE)
       {
         // if reached this block, then packet was valid and ACK should be sent
         TCPPacket *ackPacket = new TCPPacket(
@@ -183,7 +188,10 @@ void Server::handleConnection()
         sendPacket(&clientInfo, clientInfoLen, ackPacket);
         delete ackPacket;
         ackPacket = nullptr;
+        printPacket(p, false, false, false); // for receipt of the packet send
       }
+       
+
     }
     // delete the packet
     delete p;
@@ -197,7 +205,7 @@ void Server::handleConnection()
  * @param p pointer to the TCPPacket
  * @return True if packet was successfully added to the buffer, false if no space was available,the pointer was nullptr, or it was a duplicate
  */
-bool Server::addPacketToBuffer(int connId, TCPPacket *p)
+int Server::addPacketToBuffer(int connId, TCPPacket *p)
 {
   /*
 Several implementations could have been used here in the case that we
@@ -216,7 +224,7 @@ packets is not definite, and the result is therefore indeterminate.
 
   using namespace std;
   if (p == nullptr)
-    return false;
+    return PACKET_NULL;
   vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
   bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
   int nextExpectedSeqNum = m_connectionIdToTCB[connId]->connectionExpectedSeqNum;
@@ -226,11 +234,11 @@ packets is not definite, and the result is therefore indeterminate.
   string payloadBuffer = p->getPayload();
 
   if (nextExpectedSeqNum + RWND_BYTES < packetSeqNum + payloadLen)
-    return false; // runs out of bounds
+    return PACKET_DROPPED; // runs out of bounds
   if (packetSeqNum < nextExpectedSeqNum)
-    return false; // runs before bounds
+    return PACKET_DROPPED; // runs before bounds
   if (p->isFIN() || m_connectionIdToTCB[connId]->connectionState == FIN_RECEIVED)
-    return false;
+    return PACKET_DROPPED;
 
   for (int i = 0; i < payloadLen; i++)
   {
@@ -238,7 +246,7 @@ packets is not definite, and the result is therefore indeterminate.
     connectionBuffer[i + packetSeqNum - nextExpectedSeqNum] = payloadBuffer[i];
     connectionBitset[i + packetSeqNum - nextExpectedSeqNum] = 1; // now mark as used, regardless of overwrite
   }
-  return true;
+  return m_connectionIdToTCB[connId]->connectionExpectedSeqNum == p->getSeqNum() ? PACKET_DUPLICATE : PACKET_ADDED;
 }
 
 /**
