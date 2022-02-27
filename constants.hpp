@@ -9,7 +9,7 @@ enum connectionState // Connection States enum
 	AWAITING_ACK,
 	CONNECTION_SET,
 	FIN_RECEIVED
-};
+} ConnectionState;
 
 
 // common constants 

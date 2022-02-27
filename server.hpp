@@ -7,7 +7,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <bitset>
-#include "constants.h"
+#include "constants.hpp"
 class TCPPacket;
 
 struct TCB

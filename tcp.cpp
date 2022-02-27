@@ -2,9 +2,14 @@
 #include <iostream>
 #include <cstring>
 #include <sys/types.h>
+#ifdef __APPLE__
+#include <machine/endian.h>
+#include <libkern/OSByteOrder.h>
+#else
 #include <endian.h>
+#endif
 #include "tcp.hpp"
-#include "constants.cpp"
+#include "constants.hpp"
 
 /*------------------------------------------------------------
 CONSTRUCTORS

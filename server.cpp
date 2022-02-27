@@ -7,12 +7,16 @@
 #include <arpa/inet.h>
 #include <unordered_map>
 #include <fcntl.h>
+#include <netdb.h>
 #include <chrono>
 #include <ctime>
+#include <errno.h>
+#include <stdio.h>
+#include <unistd.h>
 #include "server.hpp"
-#include "constants.h"
+#include "constants.hpp"
 #include "utilities.cpp"
-#include "tcp.cpp"
+#include "tcp.hpp"
 
 // SERVER IMPLEMENTATION
 
@@ -37,7 +41,7 @@ Server::Server(char *port, std::string saveFolder)
 
   for (p = myAddrInfo; p != NULL; p = p->ai_next)
   {
-    if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+    if ((m_sockFd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
     {
       perror("listener: socket");
       continue;
@@ -55,7 +59,6 @@ Server::Server(char *port, std::string saveFolder)
     perror("listener: failed to bind socket");
     exit(1);
   }
-}
 }
 Server::~Server()
 {
@@ -220,7 +223,7 @@ packets is not definite, and the result is therefore indeterminate.
 
   int packetSeqNum = p->getSeqNum();
   int payloadLen = p->getPayloadLength();
-  char[] payloadBuffer = p->getPayload().c_str();
+  string payloadBuffer = p->getPayload();
 
   if (nextExpectedSeqNum + RWND_BYTES < packetSeqNum + payloadLen)
     return false; // runs out of bounds
@@ -246,9 +249,9 @@ packets is not definite, and the result is therefore indeterminate.
 int Server::flushBuffer(int connId)
 {
   using namespace std;
-  vector<char> &connectionBuffer = m_connectionIdToBuffer[connId]->connectionBuffer;
-  bitset<RWND_BYTES> &connectionBitset = m_connectionIdToBuffer[connId]->connectionBitVector;
-  int &nextExpectedSeqNum = m_connectionIdToBuffer[connId]->connectionExpectedSeqNum;
+  vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
+  bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
+  int &nextExpectedSeqNum = m_connectionIdToTCB[connId]->connectionExpectedSeqNum;
 
   // find the number of bytes to write
   int bytesToWrite = 0;
@@ -287,7 +290,7 @@ void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clie
     int fd = open(pathName.c_str(), O_CREAT);
 
     // set up TCB and start timer
-    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, AWAITING_ACK, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
+    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, connectionState::AWAITING_ACK, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
     m_connectionIdToTCB[packetConnId]->clientInfo = clientInfo;
     m_connectionIdToTCB[packetConnId]->clientInfoLen = clientInfoLen;
     setTimer(packetConnId);
@@ -298,7 +301,7 @@ void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clie
   // Update Connection state in case of an ACK
   else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == AWAITING_ACK) // new connection id
   {
-    m_connectionIdToTCB[p->getConnId()]->connectionState = CONNECTION_SET;
+    m_connectionIdToTCB[p->getConnId()]->connectionState = connectionState::CONNECTION_SET;
   }
 }
 
@@ -348,7 +351,7 @@ bool Server::handleFin(TCPPacket *p)
   else if (p->isFIN())
   {
     // change state to FIN_RECEIVED -> wait for ACK for FIN-ACK
-    m_connectionIdToTCB[p->getConnId()]->connectionState = FIN_RECEIVED;
+    m_connectionIdToTCB[p->getConnId()]->connectionState = connectionState::FIN_RECEIVED;
     ++m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum; // updating expected sequence number by 1
 
     TCPPacket *finPacket = new TCPPacket(
@@ -372,7 +375,7 @@ bool Server::handleFin(TCPPacket *p)
   If Ack recieved and the connection state is awaiting for ack then 4 way handwave
   complete and so close connection
   */
-  else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == fin_achieved)
+  else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == FIN_RECEIVED)
   {
     // assuming that the received expected sequence number is the same as the one received
     closeConnection(p->getConnId());
@@ -383,11 +386,11 @@ bool Server::handleFin(TCPPacket *p)
 
 int Server::outputToStdout(std::string message)
 {
-  cout << message << endl;
+  std::cout << message << std::endl;
 }
 int Server::outputToStderr(std::string message)
 {
-  cerr << message << endl;
+  std::cerr << message << std::endl;
 }
 
 int Server::sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p)
@@ -402,21 +405,22 @@ int Server::sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p)
     return -1;
   }
 
-    if ((bytesSent = sendto( m_sockFd, p->, packetLength, 0, clientInfo, clientInfoLen) == -1)
+    if ((bytesSent = sendto( m_sockFd, packetCString, packetLength, 0, clientInfo, clientInfoLen) == -1))
     {
-    std::string errorMessage = "Packet send Error: " + strerror(errno);
-    outputToStderr(errorMessage);
+      std::string errorMessage = "Packet send Error: " + std::string(strerror(errno));
+      outputToStderr(errorMessage);
     } 
     return bytesSent;
 }
 
-int Server::writeToFile(int connId, char *message, int len);
+int Server::writeToFile(int connId, char *message, int len)
 {
   TCB *currentBlock = m_connectionIdToTCB[connId];
   int fd = currentBlock->connectionFileDescriptor;
-  if ((int bytesWrote = write(fd, message, len)) == -1)
+  int bytesWrote;
+  if ((bytesWrote = write(fd, message, len)) == -1)
   {
-    std::string errorMessage = "File write Error: " + strerror(errno);
+    std::string errorMessage = "File write Error: " + std::string(strerror(errno));
     outputToStderr(errorMessage);
     return -1;
   }
@@ -425,7 +429,7 @@ int Server::writeToFile(int connId, char *message, int len);
 
 void Server::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
 {
-  string message;
+  std::string message;
 
   if(recvd)
     message = "RECV";
@@ -435,7 +439,7 @@ void Server::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
   if (recvd && dropped)
     message = "DROP";
 
-  message = message + " " + p->getSeqNum() + " " + p->getAckNum() + " " + p->getConnId() + " ";
+  message = message + " " + std::to_string(p->getSeqNum()) + " " + std::to_string(p->getAckNum()) + " " + std::to_string(p->getConnId()) + " ";
   if(p->isACK())
     message += "ACK";
   if(p->isSYN())
