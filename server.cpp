@@ -24,13 +24,13 @@ void Server::closeTimedOutConnectionsAndRetransmitFIN()
   for (auto it = m_connectionIdToTCB.begin(); it != m_connectionIdToTCB.end(); it++)
   {
     // close connection if connection inactive for 10s
-    if (!checkTimer(it->first, MAX_TIMEOUT_WAIT)) // check timer by connection id
+    if (!checkTimer(it->first, CONNECTION_TIMEOUT)) // check timer by connection id
     {                           // timer run out
       closeConnection(it->first);
     }
 
     // retransmit fin packet if ACK not received after server FIN-ACK
-    if (it->second->connectionState == fin_received && !checkTimer(it->first, RETRANSMISSION_TIMER))
+    if (it->second->connectionState == FIN_RECEIVED && !checkTimer(it->first, RETRANSMISSION_TIMER))
     {                           
       sendPacket(it->second->clientInfo, it->second->clientInfoLen, it->second->finPacket);
       setTimer(it->first);
@@ -78,7 +78,7 @@ void Server::handleConnection()
     closeTimedOutConnectionsAndRetransmitFIN(); // check and close any timed out connection every iteration
     // prepare to read incoming packet
     char packetBuffer[MAX_PACKET_LENGTH + 1]; // last byte nullbyte
-    sockaddr clientInfo;                      // needed to send response
+    struct sockaddr clientInfo;                      // needed to send response
     socklen_t clientInfoLen = sizeof(clientInfo);
     int bytesRead = recvfrom(m_sockFd, packetBuffer, MAX_PACKET_LENGTH, 0, &clientInfo, &clientInfoLen);
     packetBuffer[MAX_PACKET_LENGTH] = 0; // mark the end with a null byte
@@ -104,34 +104,36 @@ void Server::handleConnection()
     {
       // set timer for packets to detect 10s inactivity of connection 
       setTimer(packetConnId);
-      addPacketToBuffer(packetConnId, p); 
+      bool packetAdded = addPacketToBuffer(packetConnId, p);
       flushBuffer(packetConnId);
-
-      // delete the packet 
-      delete p;
-      p = nullptr;
 
       // check if the a SYN-ACK needs to be sent 
       bool synFlag = false;
-      if(m_connectionIdToTCB[packetConnId]->connectionState == awaiting_ack)
+      if(m_connectionIdToTCB[packetConnId]->connectionState == AWAITING_ACK)
       {
         synFlag = true;
       }
-
-      // if reached this block, then packet was valid and ACK should be sent
-      TCPPacket *ackPacket = new TCPPacket(
-          m_connectionIdToTCB[packetConnId]->connectionServerSeqNum,   // sequence number
-          m_connectionIdToTCB[packetConnId]->connectionExpectedSeqNum, // ack number
-          packetConnId,                                                // connection id
-          true,                                                        // is an ACK
-          synFlag,                                                       // decided by synFlag
-          false,                                                       // is not FIN
-          0,                                                           // no payload
-          "");
-      sendPacket(&clientInfo, clientInfoLen, ackPacket);
-      delete ackPacket;
-      ackPacket = nullptr;
+      
+      if(!packetAdded)
+      {
+          // if reached this block, then packet was valid and ACK should be sent
+          TCPPacket *ackPacket = new TCPPacket(
+              m_connectionIdToTCB[packetConnId]->connectionServerSeqNum,   // sequence number
+              m_connectionIdToTCB[packetConnId]->connectionExpectedSeqNum, // ack number
+              packetConnId,                                                // connection id
+              true,                                                        // is an ACK
+              synFlag,                                                       // decided by synFlag
+              false,                                                       // is not FIN
+              0,                                                           // no payload
+              "");
+          sendPacket(&clientInfo, clientInfoLen, ackPacket);
+          delete ackPacket;
+          ackPacket = nullptr;
+      }
     }
+    // delete the packet
+    delete p;
+    p = nullptr;
   }
 }
 
@@ -173,7 +175,7 @@ packets is not definite, and the result is therefore indeterminate.
     return false; // runs out of bounds
   if (packetSeqNum < nextExpectedSeqNum)
     return false; // runs before bounds
-  if (m_connectionIdToTCB[connId]->connectionState == fin_received)
+  if (p->isFIN() || m_connectionIdToTCB[connId]->connectionState == FIN_RECEIVED)
     return false;
 
   for (int i = 0; i < payloadLen; i++)
@@ -225,7 +227,7 @@ void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clie
   if (p->isSYN() && p->getConnId() == 0) // new connection id
   {
     // Get the connection ID 
-    int packetConnId = nextAvailableConnectionId;
+    int packetConnId = m_nextAvailableConnectionId;
 
     // create an output file 
     // TODO: assumed existance of save directory
@@ -233,18 +235,18 @@ void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clie
     int fd = open(pathName.c_str(), O_CREAT);
 
     // set up TCB and start timer
-    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, awaiting_ack, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
+    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, AWAITING_ACK, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
     m_connectionIdToTCB[packetConnId]->clientInfo = clientInfo;
     m_connectionIdToTCB[packetConnId]->clientInfoLen = clientInfoLen;
       setTimer(packetConnId);
 
-    ++nextAvailableConnectionId; //update the next available connection Id
+    ++m_nextAvailableConnectionId; //update the next available connection Id
   }
 
   // Update Connection state in case of an ACK 
-  else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == awaiting_ack) // new connection id
+  else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == AWAITING_ACK) // new connection id
   {
-    m_connectionIdToTCB[p->getConnId()]->connectionState = connection_set;
+    m_connectionIdToTCB[p->getConnId()]->connectionState = CONNECTION_SET;
   }
 }
 
@@ -288,11 +290,13 @@ bool Server::checkTimer(int connId, float timerLimit)
  */
 bool Server::handleFin(TCPPacket *p)
 {
+  if(p->getSeqNum() == m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum)
+      return false;
   // if fin packet update state and send fin from server 
-  if(p->isFIN())
+  else if(p->isFIN())
   {
     // change state to FIN_RECEIVED -> wait for ACK for FIN-ACK
-    m_connectionIdToTCB[p->getConnId()]->connectionState = fin_received;
+    m_connectionIdToTCB[p->getConnId()]->connectionState = FIN_RECEIVED;
     ++m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum; // updating expected sequence number by 1
 
     TCPPacket *finPacket = new TCPPacket(
@@ -318,9 +322,7 @@ bool Server::handleFin(TCPPacket *p)
   */
   else if(p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == fin_achieved)
   {
-    // assuming that the received expected sequence number is the same as the one received 
-    delete m_connectionIdToTCB[p->getConnId()]->finPacket;
-    m_connectionIdToTCB[p->getConnId()]->finPacket = nullptr;
+    // assuming that the received expected sequence number is the same as the one received
     closeConnection(p->getConnId());
     return true;
   }

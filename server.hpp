@@ -13,7 +13,7 @@ class TCPPacket;
 
 struct TCB 
 {
-	TCB(int expectedSeqNum, int fileDescriptor, connectionState state, bool syn, sockaddr *cInfo, socklen_t cInfoLen)
+	TCB(int expectedSeqNum, int fileDescriptor, connectionState state, bool syn, struct sockaddr *cInfo, socklen_t cInfoLen)
 	{
 		connectionBuffer = std::vector<char>(RWND_BYTES);
 		connectionServerSeqNum = INIT_SERVER_SEQ_NUM;
@@ -21,7 +21,14 @@ struct TCB
 		connectionState = state;
         clientInfo = cInfo;
         clientInfoLen = cInfoLen;
+        finPacket = nullptr;
 	}
+    
+    ~TCB()
+    {
+        delete finPacket;
+        finPacket = nullptr;
+    }
 
 	std::vector<char> connectionBuffer;			   // Connection's payload buffer for each packet received
 	std::bitset<RWND_BYTES> connectionBitvector;   // A bit vector to keep track of which packets have arrived to later flush to output file
@@ -31,7 +38,7 @@ struct TCB
 	c_time connectionTimer;						   // connection timer at server side (Connection closes if this runs out)
 	connectionState connectionState;			   // connection state 
 	TCPPacket *finPacket;
-    sockaddr *clientInfo;
+    struct sockaddr *clientInfo;
     socklen_t clientInfoLen;
 };
 
@@ -56,7 +63,7 @@ public:
 
 private:
 	int m_sockFd;
-	int nextAvailableConnectionId = 1;
+	int m_nextAvailableConnectionId = 1;
 	void closeTimedOutConnectionsAndRetransmitFIN();
 	void moveWindow(int connId, int bytes);
 	std::string m_folderName;
