@@ -52,7 +52,7 @@ public:
 	void addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen);
 	void setTimer(int connId);
 	bool checkTimer(int connId, float timerLimit); //false if timer runs out, true if still valid
-	void handleFin(TCPPacket *p);
+	bool handleFin(TCPPacket *p);
 	void closeConnection(int connId); // also will remove the connection ID entry from hashmap
 	void handleConnection();
 	bool addPacketToBuffer(int connId, TCPPacket *p);
