@@ -6,48 +6,68 @@
 #include <unordered_map>
 #include <netinet/in.h>
 #include <bitset>
-#include "constants.cpp"
-#include <time.h>
+#include "constants.h"
 class TCPPacket;
+
+
+
+struct TCB 
+{
+	TCB(int expectedSeqNum, int fileDescriptor, connectionState state, bool syn, struct sockaddr *cInfo, socklen_t cInfoLen)
+	{
+		connectionBuffer = std::vector<char>(RWND_BYTES);
+		connectionServerSeqNum = INIT_SERVER_SEQ_NUM;
+		connectionExpectedSeqNum = expectedSeqNum;
+		connectionState = state;
+        clientInfo = cInfo;
+        clientInfoLen = cInfoLen;
+        finPacket = nullptr;
+	}
+    
+    ~TCB()
+    {
+        delete finPacket;
+        finPacket = nullptr;
+    }
+
+	std::vector<char> connectionBuffer;			   // Connection's payload buffer for each packet received
+	std::bitset<RWND_BYTES> connectionBitvector;   // A bit vector to keep track of which packets have arrived to later flush to output file
+	int connectionExpectedSeqNum;				   // Next expected Seq Number from client
+	int connectionServerSeqNum;					   // Seq number to be sent in server ack packet
+	int connectionFileDescriptor;				   // Output target file
+	c_time connectionTimer;						   // connection timer at server side (Connection closes if this runs out)
+	connectionState connectionState;			   // connection state 
+	TCPPacket *finPacket;
+    struct sockaddr *clientInfo;
+    socklen_t clientInfoLen;
+};
 
 class Server
 {
-  public:
-  	// #1
-  	Server(int port, std::string saveFolder);
-  	~Server(); // closes the socket
-  	void run(); // engine function of the server //#3
-  	int outputToStdout(std::string message);
-  	int outputToStderr(std::string message);
-  	int writeToFile(char* message, int len);
-  	void createSocket();
-  	void sendPacket(sockaddr* clientInfo, int clientInfoLen, TCPPacket* p);
-  	
-  	// #2
-  	int handshake();
-  	void addNewConnection(TCPPacket* p); // handshake will call, initalize sequence number to 4321, ensure that vector is allocated of RWND_BYTES
-  	void startTimer(int connId);
-  	void resetTimer(int connId);
-  	bool checkTimer(int connId); //false if timer runs out, true if still valid
-  	void handleFin(TCPPacket* p); 
-    void closeConnection(int connId); // also will remove the connection ID entry from hashmap
-  	// #3
-  	void handleConnection();
-  	bool addPacketToBuffer(int connId, TCPPacket* p);
-  	int flushBuffer(int connId);
-  	
-  private:
-  	int m_sockFd;
+public:
+	Server(int port, std::string saveFolder);
+	~Server();	// closes the socket
+	void run(); // engine function of the server //#3
+	int outputToStdout(std::string message);
+	int outputToStderr(std::string message);
+	int writeToFile(char *message, int len);
+	void sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p);
+	void addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen);
+	void setTimer(int connId);
+	bool checkTimer(int connId, float timerLimit); //false if timer runs out, true if still valid
+	bool handleFin(TCPPacket *p);
+	void closeConnection(int connId); // also will remove the connection ID entry from hashmap
+	void handleConnection();
+	bool addPacketToBuffer(int connId, TCPPacket *p);
+	int flushBuffer(int connId);
 
-	void closeTimedOutConnections();
+private:
+	int m_sockFd;
+	int m_nextAvailableConnectionId = 1;
+	void closeTimedOutConnectionsAndRetransmitFIN();
 	void moveWindow(int connId, int bytes);
-
-    std::unordered_map<int, std::vector<char> > m_connectionIdToBuffer; // maps connection ID to packet buffer
-	std::unordered_map<int, std::bitset<RWND_BYTES> > m_connectionBitvector; // maps connection ID to packet buffer bitvector
-    std::unordered_map<int,int> m_connectionExpectedSeqNums; // maps connection ID to that connection's next expected sequence
-    std::unordered_map<int,int> m_connectionServerSeqNums; // maps connection ID to that connection's 
-    std::unordered_map<int,int> m_connectionFileDescriptor;
-  	std::unordered_map<int, time_t> m_connectionTimer; //TODO: timer will be replaced by a different type
+	std::string m_folderName;
+	std::unordered_map<int, TCB*> m_connectionIdToTCB;
 };
 
 #endif //SERVER_HPP
