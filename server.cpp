@@ -460,7 +460,22 @@ void Server::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
   outputToStdout(message);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
-  std::cerr << "server is not implemented yet" << std::endl;
+  using namespace std;
+  if (argc != 2)
+  {
+    cout << "Incorrect number of arguments provided!" << endl;
+    exit(1);
+  }
+
+  if(!(atoi(argv[1])))
+  {
+    cout << "Incorrect format of ports provided" << endl;
+    exit(1); //TODO: need to change and implement the exact exit functions with different exit codes.
+  }
+  
+  Server server(argv[1], argv[2]);
+  server.run();
+
 }
