@@ -7,12 +7,15 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <bitset>
+#include <chrono>
 #include "constants.hpp"
-class TCPPacket;
+#include "tcp.hpp"
+
+typedef std::chrono::time_point<std::chrono::system_clock> c_time;
 
 struct TCB
 {
-	TCB(int expectedSeqNum, int fileDescriptor, connectionState state, bool syn, struct sockaddr *cInfo, socklen_t cInfoLen)
+	TCB(int expectedSeqNum, int fileDescriptor, ConnectionState state, bool syn, struct sockaddr *cInfo, socklen_t cInfoLen)
 	{
 		connectionBuffer = std::vector<char>(RWND_BYTES);
 		connectionServerSeqNum = INIT_SERVER_SEQ_NUM;
@@ -37,7 +40,7 @@ struct TCB
 	int connectionServerSeqNum;									 // Seq number to be sent in server ack packet
 	int connectionFileDescriptor;								 // Output target file
 	c_time connectionTimer;											 // connection timer at server side (Connection closes if this runs out)
-	connectionState connectionState;						 // connection state
+	ConnectionState connectionState;						 // connection state
 	TCPPacket *finPacket;
 	struct sockaddr *clientInfo;
 	socklen_t clientInfoLen;
@@ -50,8 +53,8 @@ public:
 	Server(char *port, std::string saveFolder);
 	~Server();	// closes the socket
 	void run(); // engine function of the server //#3
-	int outputToStdout(std::string message);
-	int outputToStderr(std::string message);
+	void outputToStdout(std::string message);
+	void outputToStderr(std::string message);
 	void printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup);
 	int writeToFile(int connId, char *message, int len);
 	int sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p);

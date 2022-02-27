@@ -105,7 +105,7 @@ void Server::moveWindow(int connId, int bytes)
   vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
   bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
 
-  if (bytes >= connectionBuffer.size())
+  if (bytes >= (int) connectionBuffer.size())
     return;
 
   for (int i = 0; i < RWND_BYTES - bytes; i++) // last value of i will be RWND_BYTES - bytesToWriite - 1
@@ -296,10 +296,10 @@ void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clie
     // create an output file
     // TODO: assumed existance of save directory
     std::string pathName = m_folderName + "/" + std::to_string(packetConnId) + ".file";
-    int fd = open(pathName.c_str(), O_CREAT);
+    int fd = open(pathName.c_str(), O_CREAT, 0644);
 
     // set up TCB and start timer
-    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, connectionState::AWAITING_ACK, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
+    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, ConnectionState::AWAITING_ACK, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
     m_connectionIdToTCB[packetConnId]->clientInfo = clientInfo;
     m_connectionIdToTCB[packetConnId]->clientInfoLen = clientInfoLen;
     setTimer(packetConnId);
@@ -310,7 +310,7 @@ void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clie
   // Update Connection state in case of an ACK
   else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == AWAITING_ACK) // new connection id
   {
-    m_connectionIdToTCB[p->getConnId()]->connectionState = connectionState::CONNECTION_SET;
+    m_connectionIdToTCB[p->getConnId()]->connectionState = ConnectionState::CONNECTION_SET;
   }
 }
 
@@ -360,7 +360,7 @@ bool Server::handleFin(TCPPacket *p)
   else if (p->isFIN())
   {
     // change state to FIN_RECEIVED -> wait for ACK for FIN-ACK
-    m_connectionIdToTCB[p->getConnId()]->connectionState = connectionState::FIN_RECEIVED;
+    m_connectionIdToTCB[p->getConnId()]->connectionState = ConnectionState::FIN_RECEIVED;
     ++m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum; // updating expected sequence number by 1
 
     TCPPacket *finPacket = new TCPPacket(
@@ -393,11 +393,11 @@ bool Server::handleFin(TCPPacket *p)
   return false;
 }
 
-int Server::outputToStdout(std::string message)
+void Server::outputToStdout(std::string message)
 {
   std::cout << message << std::endl;
 }
-int Server::outputToStderr(std::string message)
+void Server::outputToStderr(std::string message)
 {
   std::cerr << message << std::endl;
 }
