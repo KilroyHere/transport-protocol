@@ -7,33 +7,33 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <bitset>
-#include "constants.cpp"
+#include "constants.h"
 class TCPPacket;
 
 
-// typedef 
-typedef std::chrono::time_point<std::chrono::system_clock> c_time;
 
 struct TCB 
 {
-	TCB(int expectedSeqNum, int fileDescriptor, int state, bool syn)
+	TCB(int expectedSeqNum, int fileDescriptor, connectionState state, bool syn, sockaddr *cInfo, socklen_t cInfoLen)
 	{
 		connectionBuffer = std::vector<char>(RWND_BYTES);
 		connectionServerSeqNum = INIT_SERVER_SEQ_NUM;
 		connectionExpectedSeqNum = expectedSeqNum;
 		connectionState = state;
-		isSYN = syn;
+        clientInfo = cInfo;
+        clientInfoLen = cInfoLen;
 	}
 
 	std::vector<char> connectionBuffer;			   // Connection's payload buffer for each packet received
-	std::bitset<RWND_BYTES> connectionBitvector; // A bit vector to keep track of which packets have arrived to later flush to output file
+	std::bitset<RWND_BYTES> connectionBitvector;   // A bit vector to keep track of which packets have arrived to later flush to output file
 	int connectionExpectedSeqNum;				   // Next expected Seq Number from client
 	int connectionServerSeqNum;					   // Seq number to be sent in server ack packet
 	int connectionFileDescriptor;				   // Output target file
 	c_time connectionTimer;						   // connection timer at server side (Connection closes if this runs out)
-	int connectionState;
+	connectionState connectionState;			   // connection state 
 	TCPPacket *finPacket;
-
+    sockaddr *clientInfo;
+    socklen_t clientInfoLen;
 };
 
 class Server
@@ -54,8 +54,6 @@ public:
 	bool checkTimer(int connId, float timerLimit); //false if timer runs out, true if still valid
 	void handleFin(TCPPacket *p);
 	void closeConnection(int connId); // also will remove the connection ID entry from hashmap
-
-	// #3
 	void handleConnection();
 	bool addPacketToBuffer(int connId, TCPPacket *p);
 	int flushBuffer(int connId);
@@ -67,7 +65,7 @@ private:
 	void closeTimedOutConnectionsAndRetransmitFIN();
 	void moveWindow(int connId, int bytes);
 	std::string m_folderName;
-	std::unordered_map<int, TCB *> m_connectionIdToTCB;
+	std::unordered_map<int, TCB*> m_connectionIdToTCB;
 };
 
 #endif //SERVER_HPP
