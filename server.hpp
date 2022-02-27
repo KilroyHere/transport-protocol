@@ -17,6 +17,7 @@ struct TCB
 		connectionBuffer = std::vector<char>(RWND_BYTES);
 		connectionServerSeqNum = INIT_SERVER_SEQ_NUM;
 		connectionExpectedSeqNum = expectedSeqNum;
+		previousExpectedSeqNum = -1;
 		connectionState = state;
 		clientInfo = cInfo;
 		clientInfoLen = cInfoLen;
@@ -32,6 +33,7 @@ struct TCB
 	std::vector<char> connectionBuffer;					 // Connection's payload buffer for each packet received
 	std::bitset<RWND_BYTES> connectionBitvector; // A bit vector to keep track of which packets have arrived to later flush to output file
 	int connectionExpectedSeqNum;								 // Next expected Seq Number from client
+	int previousExpectedSeqNum;
 	int connectionServerSeqNum;									 // Seq number to be sent in server ack packet
 	int connectionFileDescriptor;								 // Output target file
 	c_time connectionTimer;											 // connection timer at server side (Connection closes if this runs out)
@@ -61,7 +63,7 @@ public:
 	bool handleFin(TCPPacket *p);
 	void closeConnection(int connId); // also will remove the connection ID entry from hashmap
 	void handleConnection();
-	bool addPacketToBuffer(int connId, TCPPacket *p);
+	int addPacketToBuffer(int connId, TCPPacket *p);
 	int flushBuffer(int connId);
 
 private:
