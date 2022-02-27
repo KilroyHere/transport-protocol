@@ -9,7 +9,7 @@
 #include <chrono>
 #include <ctime>
 #include "server.hpp"
-#include "constants.cpp"
+#include "constants.h"
 #include "utilities.cpp"
 #include "tcp.cpp"
 
@@ -30,9 +30,9 @@ void Server::closeTimedOutConnectionsAndRetransmitFIN()
     }
 
     // retransmit fin packet if ACK not received after server FIN-ACK
-    if (it->second->connectionState == fin_received && !checkTimer(it->first, 0.5)) 
+    if (it->second->connectionState == fin_received && !checkTimer(it->first, RETRANSMISSION_TIMER))
     {                           
-      sendPacket(&clientInfo, clientInfoLen, it->second->finPacket);
+      sendPacket(it->second->clientInfo, it->second->clientInfoLen, it->second->finPacket);
       setTimer(it->first);
     }
   }
@@ -233,7 +233,7 @@ void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clie
     int fd = open(pathName.c_str(), O_CREAT);
 
     // set up TCB and start timer
-    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, awaiting_ack, true); // +1 in constructer as SYN == 1byte
+    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, awaiting_ack, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
     m_connectionIdToTCB[packetConnId]->clientInfo = clientInfo;
     m_connectionIdToTCB[packetConnId]->clientInfoLen = clientInfoLen;
     startTimer(packetConnId);

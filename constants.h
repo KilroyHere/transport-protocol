@@ -2,13 +2,14 @@
 const int RWND_BYTES = 51200;
 const int INIT_SERVER_SEQ_NUM = 4321;
 const int MAX_TIMEOUT_WAIT = 10; //seconds
+const float RETRANSMISSION_TIMER = 0.5;
 
 enum connectionState // Connection States enum
 {
 	awaiting_ack,
 	connection_set,
 	fin_received
-}
+};
 
 
 // common constants 
