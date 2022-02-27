@@ -168,7 +168,8 @@ void Server::handleConnection()
       {
         synFlag = true;
       }
-      bool isDup = returnValue == PACKET_DUPLICATE;
+      bool isDup = m_connectionIdToTCB[packetConnId]->connectionExpectedSeqNum == m_connectionIdToTCB[packetConnId]->previousExpectedSeqNum;
+      m_connectionIdToTCB[packetConnId]->previousExpectedSeqNum = m_connectionIdToTCB[packetConnId]->connectionExpectedSeqNum;
       bool isDropped = returnValue == PACKET_DROPPED;
 
       printPacket(p, true, isDropped, false); // for receipt of the packet receive
@@ -246,7 +247,7 @@ packets is not definite, and the result is therefore indeterminate.
     connectionBuffer[i + packetSeqNum - nextExpectedSeqNum] = payloadBuffer[i];
     connectionBitset[i + packetSeqNum - nextExpectedSeqNum] = 1; // now mark as used, regardless of overwrite
   }
-  return m_connectionIdToTCB[connId]->connectionExpectedSeqNum == p->getSeqNum() ? PACKET_DUPLICATE : PACKET_ADDED;
+  return PACKET_ADDED;
 }
 
 /**
