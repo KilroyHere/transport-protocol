@@ -4,7 +4,7 @@
 // server constants 
 const int RWND_BYTES = 51200;
 const int INIT_SERVER_SEQ_NUM = 4321;
-const int CONNECTION_TIMEOUT = 10; //seconds
+const int CONNECTION_TIMEOUT = 100; //seconds
 const float RETRANSMISSION_TIMER = 0.5;
 
 enum ConnectionState // Connection States enum
