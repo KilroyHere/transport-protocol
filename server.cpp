@@ -85,11 +85,7 @@ void Server::closeTimedOutConnectionsAndRetransmitFIN()
     // retransmit fin packet if ACK not received after server FIN-ACK
     if (it->second->connectionState == fin_received && !checkTimer(it->first, RETRANSMISSION_TIMER))
     {                           
-<<<<<<< HEAD
-      sendPacket(it->second.clientInfo, clientInfoLen, it->second->finPacket);
-=======
       sendPacket(it->second->clientInfo, it->second->clientInfoLen, it->second->finPacket);
->>>>>>> origin/sanchit/server
       setTimer(it->first);
     }
   }
@@ -278,11 +274,7 @@ int Server::flushBuffer(int connId)
 /**
  * @brief Adds a new connection and sets the correct connection State 
  */
-<<<<<<< HEAD
-bool Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen)
-=======
 void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen)
->>>>>>> origin/sanchit/server
 {
   if (p->isSYN() && p->getConnId() == 0) // new connection id
   {
