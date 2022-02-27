@@ -6,8 +6,7 @@
 #include <unordered_map>
 #include <netinet/in.h>
 #include <bitset>
-#include "constants.cpp"
-#include <time.h>
+#include "constants.hpp"
 class TCPPacket;
 
 class Server

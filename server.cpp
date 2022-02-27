@@ -5,11 +5,68 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unordered_map>
+#include <fcntl.h>
+#include <netdb.h>
+#include <chrono>
+#include <ctime>
+#include <errno.h>
+#include <stdio.h>
+#include <unistd.h>
 #include "server.hpp"
-#include "constants.cpp"
+#include "constants.hpp"
 #include "utilities.cpp"
+#include "tcp.hpp"
 
 // SERVER IMPLEMENTATION
+
+// CONSTRUCTORS
+
+Server::Server(char *port, std::string saveFolder)
+{
+  m_folderName = saveFolder;
+
+  struct addrinfo hints, *myAddrInfo, *p;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET; // set to AF_INET to use IPv4
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags = AI_PASSIVE; // use my IP
+
+  int ret;
+  if ((ret = getaddrinfo(NULL, port, &hints, &myAddrInfo)) != 0)
+  {
+    perror("getaddrinfo");
+    exit(1);
+  }
+
+  for (p = myAddrInfo; p != NULL; p = p->ai_next)
+  {
+    if ((m_sockFd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+    {
+      perror("listener: socket");
+      continue;
+    }
+    if (bind(m_sockFd, p->ai_addr, p->ai_addrlen) == -1)
+    {
+      close(m_sockFd);
+      perror("listener: bind");
+      continue;
+    }
+    break;
+  }
+  if (p == NULL)
+  {
+    perror("listener: failed to bind socket");
+    exit(1);
+  }
+}
+Server::~Server()
+{
+}
+
+void Server::run()
+{
+  handleConnection();
+}
 
 /**
  * @brief Enumerate through timers and if any timer has timed out, release resources for that connection
@@ -156,7 +213,7 @@ packets is not definite, and the result is therefore indeterminate.
 
   int packetSeqNum = p->getSeqNum();
   int payloadLen = p->getPayloadLength();
-  char* payloadBuffer = p->getPayload();
+  string payloadBuffer = p->getPayload();
 
   if (nextExpectedSeqNum + RWND_BYTES < packetSeqNum + payloadLen) return false; // runs out of bounds
   if (packetSeqNum < nextExpectedSeqNum) return false; // runs before bounds
@@ -178,9 +235,9 @@ packets is not definite, and the result is therefore indeterminate.
 int Server::flushBuffer(int connId)
 {
   using namespace std;
-  vector<char>& connectionBuffer = m_connectionIdToBuffer[connId];
-  bitset<RWND_BYTES>& connectionBitset = m_connectionBitvector[connId];
-  int& nextExpectedSeqNum = m_connectionExpectedSeqNums[connId];
+  vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
+  bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
+  int &nextExpectedSeqNum = m_connectionIdToTCB[connId]->connectionExpectedSeqNum;
 
   // find the number of bytes to write
   int bytesToWrite = 0;
@@ -199,6 +256,183 @@ int Server::flushBuffer(int connId)
   moveWindow(connId, bytesToWrite);
 
   return bytesToWrite;
+}
+
+/**
+ * @brief Adds a new connection and sets the correct connection State
+ */
+void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen)
+{
+  if (p->isSYN() && p->getConnId() == 0) // new connection id
+  {
+    // Get the connection ID
+    int packetConnId = m_nextAvailableConnectionId;
+
+    // create an output file
+    // TODO: assumed existance of save directory
+    std::string pathName = m_folderName + "/" + std::to_string(packetConnId) + ".file";
+    int fd = open(pathName.c_str(), O_CREAT);
+
+    // set up TCB and start timer
+    m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, connectionState::AWAITING_ACK, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
+    m_connectionIdToTCB[packetConnId]->clientInfo = clientInfo;
+    m_connectionIdToTCB[packetConnId]->clientInfoLen = clientInfoLen;
+    setTimer(packetConnId);
+
+    ++m_nextAvailableConnectionId; // update the next available connection Id
+  }
+
+  // Update Connection state in case of an ACK
+  else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == AWAITING_ACK) // new connection id
+  {
+    m_connectionIdToTCB[p->getConnId()]->connectionState = connectionState::CONNECTION_SET;
+  }
+}
+
+/**
+ * @brief close connection and remove entry from unordered map
+ */
+void Server::closeConnection(int connId)
+{
+  // delete TCB Block
+  delete m_connectionIdToTCB[connId];
+  m_connectionIdToTCB[connId] = nullptr;
+
+  // remove entry
+  m_connectionIdToTCB.erase(m_connectionIdToTCB.find(connId), m_connectionIdToTCB.end());
+}
+
+/**
+ * @brief set timer by saving current timestamp
+ */
+void Server::setTimer(int connId)
+{
+  m_connectionIdToTCB[connId]->connectionTimer = std::chrono::system_clock::now();
+}
+
+/**
+ * @brief check timer by comparing present timestamp with timerLimit
+ */
+bool Server::checkTimer(int connId, float timerLimit)
+{
+  c_time current_time = std::chrono::system_clock::now();
+  c_time start_time = m_connectionIdToTCB[connId]->connectionTimer;
+  std::chrono::duration<double> elapsed_time = current_time - start_time;
+  int elapsed_seconds = elapsed_time.count();
+
+  return (elapsed_seconds >= timerLimit);
+}
+
+/**
+ * @brief handleFin
+ * @return boolean if fin was handled or not
+ */
+bool Server::handleFin(TCPPacket *p)
+{
+  if (p->getSeqNum() == m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum)
+    return false;
+  // if fin packet update state and send fin from server
+  else if (p->isFIN())
+  {
+    // change state to FIN_RECEIVED -> wait for ACK for FIN-ACK
+    m_connectionIdToTCB[p->getConnId()]->connectionState = connectionState::FIN_RECEIVED;
+    ++m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum; // updating expected sequence number by 1
+
+    TCPPacket *finPacket = new TCPPacket(
+        m_connectionIdToTCB[p->getConnId()]->connectionServerSeqNum,   // sequence number
+        m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum, // ack number
+        p->getConnId(),                                                // connection id
+        true,                                                          // is ACK
+        false,                                                         // is not SYN
+        true,                                                          // is FIN
+        0,                                                             // no payload
+        "");
+    sendPacket(m_connectionIdToTCB[p->getConnId()]->clientInfo, m_connectionIdToTCB[p->getConnId()]->clientInfoLen, finPacket);
+
+    // save the FIN packet
+    m_connectionIdToTCB[p->getConnId()]->finPacket = finPacket;
+    setTimer(p->getConnId()); // set timer
+    return true;
+  }
+
+  /*
+  If Ack recieved and the connection state is awaiting for ack then 4 way handwave
+  complete and so close connection
+  */
+  else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == FIN_RECEIVED)
+  {
+    // assuming that the received expected sequence number is the same as the one received
+    closeConnection(p->getConnId());
+    return true;
+  }
+  return false;
+}
+
+int Server::outputToStdout(std::string message)
+{
+  std::cout << message << std::endl;
+}
+int Server::outputToStderr(std::string message)
+{
+  std::cerr << message << std::endl;
+}
+
+int Server::sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p)
+{
+  int packetLength;
+  char *packetCString;
+  int bytesSent;
+
+  packetCString = p->getCString(packetLength);
+  if (p == nullptr)
+  {
+    return -1;
+  }
+
+    if ((bytesSent = sendto( m_sockFd, packetCString, packetLength, 0, clientInfo, clientInfoLen) == -1))
+    {
+      std::string errorMessage = "Packet send Error: " + std::string(strerror(errno));
+      outputToStderr(errorMessage);
+    } 
+    return bytesSent;
+}
+
+int Server::writeToFile(int connId, char *message, int len)
+{
+  TCB *currentBlock = m_connectionIdToTCB[connId];
+  int fd = currentBlock->connectionFileDescriptor;
+  int bytesWrote;
+  if ((bytesWrote = write(fd, message, len)) == -1)
+  {
+    std::string errorMessage = "File write Error: " + std::string(strerror(errno));
+    outputToStderr(errorMessage);
+    return -1;
+  }
+  return bytesWrote;
+}
+
+void Server::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
+{
+  std::string message;
+
+  if(recvd)
+    message = "RECV";
+  else
+    message = "SEND";
+
+  if (recvd && dropped)
+    message = "DROP";
+
+  message = message + " " + std::to_string(p->getSeqNum()) + " " + std::to_string(p->getAckNum()) + " " + std::to_string(p->getConnId()) + " ";
+  if(p->isACK())
+    message += "ACK";
+  if(p->isSYN())
+    message += "SYN";
+  if(p->isFIN())
+    message += "FIN";
+  if(dup && !recvd)
+    message += "DUP";
+  outputToStdout(message);
 }
 
 int main()
