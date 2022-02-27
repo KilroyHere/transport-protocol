@@ -171,7 +171,7 @@ void Server::handleConnection()
       bool isDup = returnValue == PACKET_DUPLICATE;
       bool isDropped = returnValue == PACKET_DROPPED;
 
-      printPacket(p, true, isDropped, isDup); // for receipt of the packet receive
+      printPacket(p, true, isDropped, false); // for receipt of the packet receive
 
       if (returnValue == PACKET_ADDED || returnValue == PACKET_DUPLICATE)
       {
@@ -188,7 +188,7 @@ void Server::handleConnection()
         sendPacket(&clientInfo, clientInfoLen, ackPacket);
         delete ackPacket;
         ackPacket = nullptr;
-        printPacket(p, false, false, false); // for receipt of the packet send
+        printPacket(p, false, false, isDup); // for receipt of the packet send
       }
        
 
