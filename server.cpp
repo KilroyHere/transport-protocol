@@ -4,6 +4,7 @@
 #include <iostream>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unordered_map>
 #include <fcntl.h>
 #include <chrono>
@@ -14,6 +15,58 @@
 #include "tcp.cpp"
 
 // SERVER IMPLEMENTATION
+
+
+// CONSTRUCTORS
+
+Server::Server(char *port, std::string saveFolder)
+{
+  m_folderName = saveFolder;
+
+  struct addrinfo hints, *myAddrInfo, *p;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET; // set to AF_INET to use IPv4
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags = AI_PASSIVE; // use my IP
+
+  int ret;
+  if((ret = getaddrinfo(NULL, port, &hints, &myAddrInfo)) != 0){
+    perror("getaddrinfo");
+    exit(1);
+  }
+
+   for(p = myAddrInfo; p != NULL; p = p->ai_next) 
+   {
+     if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+      {
+        perror("listener: socket");
+        continue;
+      }
+      if (bind(m_sockFd, p->ai_addr, p->ai_addrlen) == -1) 
+      {
+        close(m_sockFd);
+        perror("listener: bind");
+        continue;
+      }
+      break;
+    }
+    if (p == NULL) {
+        perror("listener: failed to bind socket");
+        exit(1);
+    }
+
+  }
+
+}
+Server::~Server()
+{
+
+}
+
+void Server::run()
+{
+    handleConnection();
+}
 
 /**
  * @brief Enumerate through timers and if any timer has timed out, release resources for that connection
@@ -31,7 +84,7 @@ void Server::closeTimedOutConnectionsAndRetransmitFIN()
 
     if (it->second->connectionState == FIN_RECEIVED && !checkTimer(it->first, 0.5)) 
     {                           
-      sendPacket(&clientInfo, clientInfoLen, it->second->finPacket);
+      sendPacket(it->second.clientInfo, clientInfoLen, it->second->finPacket);
       setTimer(it->first);
     }
   }
@@ -223,7 +276,7 @@ int Server::flushBuffer(int connId)
  * 
  * @return bool
  */
-bool addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen)
+bool Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen)
 {
   if (p->isSYN() && p->getConnId() == 0) // new connection id
   {
@@ -263,7 +316,7 @@ bool addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLe
 /**
  * @brief 
  */
-void closeConnection(int connId)
+void Server::closeConnection(int connId)
 {
   // delete TCB Block 
   delete m_connectionIdToTCB[p->getConnId()];
@@ -322,17 +375,47 @@ void handleFin(TCPPacket *p)
 
 	int Server::outputToStdout(std::string message)
   {
-    cout << message;
+    cout << message << endl;
   }
 	int Server::outputToStderr(std::string message)
   {
-    cerr << message;
+    cerr << message << endl;
   }
 
-  void Server::sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p)
+  int Server::sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p)
   {
+    int packetLength;
+    char* packetCString;
+    int bytesSent;
 
+    packetCString = p->getCString(packetLength);
+    if( p == nullptr)
+    {
+      return -1;
+    }
+
+    if ((bytesSent = sendto( m_sockFd, p->, packetLength, 0, clientInfo, clientInfoLen) == -1)
+    {
+      std::string errorMessage = "Packet send Error: " + strerror(errno);
+      outputToStderr(errorMessage);
+    } 
+    return bytesSent;
   }
+
+  int Server::writeToFile(int connId, char *message, int len);
+  {
+    TCB *currentBlock = m_connectionIdToTCB[connId];
+    int fd = currentBlock->connectionFileDescriptor;
+    if( (int bytesWrote = write( fd, message, len)) == -1)
+    {
+      std::string errorMessage = "File write Error: " + strerror(errno);
+      outputToStderr(errorMessage);
+      return -1;
+    }
+    return bytesWrote;
+  }
+
+
 
 int main()
 {

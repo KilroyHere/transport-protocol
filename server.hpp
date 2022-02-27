@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <bitset>
 #include "constants.cpp"
 class TCPPacket;
@@ -39,13 +40,13 @@ class Server
 {
 public:
 	// #1
-	Server(int port, std::string saveFolder);
+	Server(char* port, std::string saveFolder);
 	~Server();	// closes the socket
 	void run(); // engine function of the server //#3
 	int outputToStdout(std::string message);
 	int outputToStderr(std::string message);
 	int writeToFile(int connId, char *message, int len); 
-	void sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p);
+	int sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p);
 
 	// #2
 	void addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen);
@@ -60,11 +61,12 @@ public:
 	int flushBuffer(int connId);
 
 private:
+
 	int m_sockFd;
 	int nextAvailableConnectionId = 1;
 	void closeTimedOutConnectionsAndRetransmitFIN();
 	void moveWindow(int connId, int bytes);
-
+	std::string m_folderName;
 	std::unordered_map<int, TCB *> m_connectionIdToTCB;
 };
 
