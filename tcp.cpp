@@ -26,11 +26,10 @@ TCPPacket::TCPPacket(std::string s)
   }
 
   m_payloadLen = m_totalLength - HEADER_LEN;
-  m_payload.resize(m_payloadLen);
   
   for(int i = 0 ; i < m_payloadLen; i++)
   {
-    m_payload[i] = m_packetCString[i+HEADER_LEN];
+    m_payload += m_packetCString[i+HEADER_LEN];
   } 
 
   memcpy(&m_seq, m_packetCString, sizeof(m_seq));

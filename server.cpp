@@ -85,7 +85,7 @@ void Server::closeTimedOutConnectionsAndRetransmitFIN()
     }
 
     // retransmit fin packet if ACK not received after server FIN-ACK
-    if (it->second->connectionState == FIN_RECEIVED && !checkTimer(it->first, RETRANSMISSION_TIMER))
+    else if (it->second->connectionState == FIN_RECEIVED && !checkTimer(it->first, RETRANSMISSION_TIMER))
     {
       sendPacket(it->second->clientInfo, it->second->clientInfoLen, it->second->finPacket);
       setTimer(it->first);
@@ -146,8 +146,8 @@ void Server::handleConnection()
 
     /* everything will go through addNewConnection and handlefIN as if the packet is
      relevant to them they will update connection state */
-    addNewConnection(p, &clientInfo, clientInfoLen);
-    bool finHandled = handleFin(p);
+    packetConnId = addNewConnection(p, &clientInfo, clientInfoLen);
+    bool finHandled = handleFin(p, packetConnId);
 
     // if packet is not in map then discard it
     if (m_connectionIdToTCB.find(packetConnId) == m_connectionIdToTCB.end())
@@ -186,10 +186,12 @@ void Server::handleConnection()
             false,                                                       // is not FIN
             0,                                                           // no payload
             "");
+        if(synFlag)
+          ++m_connectionIdToTCB[packetConnId]->connectionServerSeqNum;
         sendPacket(&clientInfo, clientInfoLen, ackPacket);
+        printPacket(ackPacket, false, false, isDup); // for receipt of the packet send
         delete ackPacket;
         ackPacket = nullptr;
-        printPacket(p, false, false, isDup); // for receipt of the packet send
       }
        
 
@@ -226,6 +228,7 @@ packets is not definite, and the result is therefore indeterminate.
   using namespace std;
   if (p == nullptr)
     return PACKET_NULL;
+  if (p->isSYN()) return PACKET_ADDED;
   vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
   bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
   int nextExpectedSeqNum = m_connectionIdToTCB[connId]->connectionExpectedSeqNum;
@@ -234,18 +237,49 @@ packets is not definite, and the result is therefore indeterminate.
   int payloadLen = p->getPayloadLength();
   string payloadBuffer = p->getPayload();
 
-  if (nextExpectedSeqNum + RWND_BYTES < packetSeqNum + payloadLen)
-    return PACKET_DROPPED; // runs out of bounds
-  if (packetSeqNum < nextExpectedSeqNum)
-    return PACKET_DROPPED; // runs before bounds
   if (p->isFIN() || m_connectionIdToTCB[connId]->connectionState == FIN_RECEIVED)
     return PACKET_DROPPED;
 
+
+  /*
+  HANDLING OF WRAP AROUND:
+
+  The only time we will see a wrap around in action is if the the sequence number of the packet arrived
+  is less than the nextExpectedSequnceNumber
+
+  What about the case if there is a wrap around of the sequence number within the packet's payload?
+  We don't care; the nextExpectedSeqNum would be an offset such that all the payload should have space.
+  If that runs out of bounds, we should DROP the packet, not accomodate for it by wrapping out in the buffer.
+
+  We NEVER wrap around in index to the start of the buffer. We ONLY wrap around in terms of the next packet's sequence number.
+
+  In such a case that there is a wrap around, then for all we are concerned, we only need to shift the offset
+
+  This logic sets the code as follows:
+  */
+
+  int offset = packetSeqNum - nextExpectedSeqNum;
+
+  if (packetSeqNum < nextExpectedSeqNum)
+  {
+    offset = MAX_SEQ_NUM + packetSeqNum - nextExpectedSeqNum;
+    /*
+    RWND_BYTES + packetSeqNum => shift the packets sequence number as if it is moving beyond the maximum sequence number
+    - nextExpectedSeqNum => shift back based on the base offset
+    */
+  }
+
+  // when to drop?
+  // we have an adjusted base offset, all we have to see now is if it runs above or below bounds 
+  // (because RWND_BYTES + packetSeqNum - nextExpectedSeqNum) can be less than 0 or it can go beyond the buffer
+  // a neat way to think of offset is an "adjusted sequence number"
+  if (offset + payloadLen > RWND_BYTES) return PACKET_DROPPED;
+
   for (int i = 0; i < payloadLen; i++)
   {
-    // TODO: may need to use the sequence number reset wrap around value eventually with modulus
-    connectionBuffer[i + packetSeqNum - nextExpectedSeqNum] = payloadBuffer[i];
-    connectionBitset[i + packetSeqNum - nextExpectedSeqNum] = 1; // now mark as used, regardless of overwrite
+
+    connectionBuffer[offset + i] = payloadBuffer[i];
+    connectionBitset[offset + i] = 1; // now mark as used, regardless of overwrite
   }
   return PACKET_ADDED;
 }
@@ -261,7 +295,7 @@ int Server::flushBuffer(int connId)
   vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
   bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
   int &nextExpectedSeqNum = m_connectionIdToTCB[connId]->connectionExpectedSeqNum;
-
+  
   // find the number of bytes to write
   int bytesToWrite = 0;
   for (; bytesToWrite < RWND_BYTES && connectionBitset[bytesToWrite] == 1; bytesToWrite++)
@@ -274,6 +308,7 @@ int Server::flushBuffer(int connId)
 
   writeToFile(connId, outputBuffer, bytesToWrite);
   nextExpectedSeqNum += bytesToWrite; // update the next expected sequence number
+  nextExpectedSeqNum %= MAX_SEQ_NUM + 1;
 
   delete[] outputBuffer;
   outputBuffer = nullptr;
@@ -286,7 +321,7 @@ int Server::flushBuffer(int connId)
 /**
  * @brief Adds a new connection and sets the correct connection State
  */
-void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen)
+int Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen)
 {
   if (p->isSYN() && p->getConnId() == 0) // new connection id
   {
@@ -296,22 +331,26 @@ void Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clie
     // create an output file
     // TODO: assumed existance of save directory
     std::string pathName = m_folderName + "/" + std::to_string(packetConnId) + ".file";
-    int fd = open(pathName.c_str(), O_CREAT, 0644);
+    int fd = open(pathName.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0644);
 
     // set up TCB and start timer
     m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, ConnectionState::AWAITING_ACK, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
     m_connectionIdToTCB[packetConnId]->clientInfo = clientInfo;
     m_connectionIdToTCB[packetConnId]->clientInfoLen = clientInfoLen;
+    m_connectionIdToTCB[packetConnId]->connectionFileDescriptor = fd;
     setTimer(packetConnId);
 
     ++m_nextAvailableConnectionId; // update the next available connection Id
+    return packetConnId;
   }
 
   // Update Connection state in case of an ACK
   else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == AWAITING_ACK) // new connection id
   {
     m_connectionIdToTCB[p->getConnId()]->connectionState = ConnectionState::CONNECTION_SET;
+    return p->getConnId();
   }
+  return p->getConnId();
 }
 
 /**
@@ -322,9 +361,7 @@ void Server::closeConnection(int connId)
   // delete TCB Block
   delete m_connectionIdToTCB[connId];
   m_connectionIdToTCB[connId] = nullptr;
-
-  // remove entry
-  m_connectionIdToTCB.erase(m_connectionIdToTCB.find(connId), m_connectionIdToTCB.end());
+  m_connectionIdToTCB.erase(connId);
 }
 
 /**
@@ -345,38 +382,51 @@ bool Server::checkTimer(int connId, float timerLimit)
   std::chrono::duration<double> elapsed_time = current_time - start_time;
   int elapsed_seconds = elapsed_time.count();
 
-  return (elapsed_seconds >= timerLimit);
+  return (elapsed_seconds < timerLimit);
 }
 
 /**
  * @brief handleFin
  * @return boolean if fin was handled or not
  */
-bool Server::handleFin(TCPPacket *p)
+bool Server::handleFin(TCPPacket* p, int connId)
 {
-  if (p->getSeqNum() == m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum)
+  if (p->getSeqNum() < m_connectionIdToTCB[connId]->connectionExpectedSeqNum)
     return false;
   // if fin packet update state and send fin from server
   else if (p->isFIN())
   {
+    
+    // output the packet 
+    bool duplicate = false;
+    if (m_connectionIdToTCB[connId]->connectionState == ConnectionState::FIN_RECEIVED)
+    {
+      // the FIN-ACK was already sent, but I got it again
+      duplicate = true;
+    }
+
+    printPacket(p, true, false, false);
+
+
     // change state to FIN_RECEIVED -> wait for ACK for FIN-ACK
-    m_connectionIdToTCB[p->getConnId()]->connectionState = ConnectionState::FIN_RECEIVED;
-    ++m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum; // updating expected sequence number by 1
+    m_connectionIdToTCB[connId]->connectionState = ConnectionState::FIN_RECEIVED;
+    ++m_connectionIdToTCB[connId]->connectionExpectedSeqNum; // updating expected sequence number by 1
 
     TCPPacket *finPacket = new TCPPacket(
-        m_connectionIdToTCB[p->getConnId()]->connectionServerSeqNum,   // sequence number
-        m_connectionIdToTCB[p->getConnId()]->connectionExpectedSeqNum, // ack number
-        p->getConnId(),                                                // connection id
+        m_connectionIdToTCB[connId]->connectionServerSeqNum,   // sequence number
+        m_connectionIdToTCB[connId]->connectionExpectedSeqNum, // ack number
+        connId,                                                // connection id
         true,                                                          // is ACK
         false,                                                         // is not SYN
         true,                                                          // is FIN
         0,                                                             // no payload
         "");
-    sendPacket(m_connectionIdToTCB[p->getConnId()]->clientInfo, m_connectionIdToTCB[p->getConnId()]->clientInfoLen, finPacket);
-
+    sendPacket(m_connectionIdToTCB[connId]->clientInfo, m_connectionIdToTCB[connId]->clientInfoLen, finPacket);
+    ++m_connectionIdToTCB[connId]->connectionServerSeqNum;
     // save the FIN packet
-    m_connectionIdToTCB[p->getConnId()]->finPacket = finPacket;
-    setTimer(p->getConnId()); // set timer
+    m_connectionIdToTCB[connId]->finPacket = finPacket;
+    printPacket(finPacket, false, false, duplicate);
+    setTimer(connId); // set timer
     return true;
   }
 
@@ -386,6 +436,8 @@ bool Server::handleFin(TCPPacket *p)
   */
   else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == FIN_RECEIVED)
   {
+    // write out the packet
+    printPacket(p, true, false, false);
     // assuming that the received expected sequence number is the same as the one received
     closeConnection(p->getConnId());
     return true;
@@ -450,20 +502,21 @@ void Server::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
 
   message = message + " " + std::to_string(p->getSeqNum()) + " " + std::to_string(p->getAckNum()) + " " + std::to_string(p->getConnId()) + " ";
   if(p->isACK())
-    message += "ACK";
+    message += "ACK ";
   if(p->isSYN())
-    message += "SYN";
+    message += "SYN ";
   if(p->isFIN())
-    message += "FIN";
+    message += "FIN ";
   if(dup && !recvd)
-    message += "DUP";
+    message += "DUP ";
+  message.pop_back(); // remove the trailing space
   outputToStdout(message);
 }
 
 int main(int argc, char *argv[])
 {
   using namespace std;
-  if (argc != 2)
+  if (argc != 3)
   {
     cout << "Incorrect number of arguments provided!" << endl;
     exit(1);

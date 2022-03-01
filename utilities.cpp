@@ -24,7 +24,7 @@ std::string convertCStringtoStandardString(char* buffer, int len)
     std::string ret;
     for (int i = 0; i < len; i++) // need the for loop to force null byte in the payload to the packet
     {
-      len += buffer[i];
+      ret += buffer[i];
     }
     return ret;
 }

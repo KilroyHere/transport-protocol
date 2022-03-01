@@ -60,10 +60,10 @@ public:
 	int sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p);
 
 	// #2
-	void addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen);
+	int addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clientInfoLen);
 	void setTimer(int connId);
 	bool checkTimer(int connId, float timerLimit); // false if timer runs out, true if still valid
-	bool handleFin(TCPPacket *p);
+	bool handleFin(TCPPacket* p, int connId);
 	void closeConnection(int connId); // also will remove the connection ID entry from hashmap
 	void handleConnection();
 	int addPacketToBuffer(int connId, TCPPacket *p);
