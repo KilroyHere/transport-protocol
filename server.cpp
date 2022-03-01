@@ -239,6 +239,8 @@ packets is not definite, and the result is therefore indeterminate.
 
   if (nextExpectedSeqNum + RWND_BYTES < packetSeqNum + payloadLen)
     return PACKET_DROPPED; // runs out of bounds
+
+    // TODO: consider dropping or changing this line 
   if (packetSeqNum < nextExpectedSeqNum)
     return PACKET_DROPPED; // runs before bounds
   if (p->isFIN() || m_connectionIdToTCB[connId]->connectionState == FIN_RECEIVED)
@@ -247,8 +249,9 @@ packets is not definite, and the result is therefore indeterminate.
   for (int i = 0; i < payloadLen; i++)
   {
     // TODO: may need to use the sequence number reset wrap around value eventually with modulus
-    connectionBuffer[i + packetSeqNum - nextExpectedSeqNum] = payloadBuffer[i];
-    connectionBitset[i + packetSeqNum - nextExpectedSeqNum] = 1; // now mark as used, regardless of overwrite
+    int index = (i + packetSeqNum) < nextExpectedSeqNum ? i + packetSeqNum + nextExpectedSeqNum : i + packetSeqNum - nextExpectedSeqNum;
+    connectionBuffer[index] = payloadBuffer[i];
+    connectionBitset[index] = 1; // now mark as used, regardless of overwrite
   }
   return PACKET_ADDED;
 }
@@ -277,6 +280,7 @@ int Server::flushBuffer(int connId)
 
   writeToFile(connId, outputBuffer, bytesToWrite);
   nextExpectedSeqNum += bytesToWrite; // update the next expected sequence number
+  nextExpectedSeqNum %= MAX_SEQ_NUM + 1;
 
   delete[] outputBuffer;
   outputBuffer = nullptr;
