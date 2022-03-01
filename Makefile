@@ -10,7 +10,7 @@ server: $(CLASSES)
 	$(CXX) -o server $(CXXFLAGS) server.cpp tcp.cpp
 
 client: $(CLASSES)
-	$(CXX) -o client $^ $(CXXFLAGS) clinet.cpp tcp.cpp
+	$(CXX) -o client $^ $(CXXFLAGS) client.cpp tcp.cpp
 
 clean:
 	rm -rf *.o *~ *.gch *.swp *.dSYM server client *.tar.gz
