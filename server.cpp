@@ -273,8 +273,6 @@ packets is not definite, and the result is therefore indeterminate.
   // we have an adjusted base offset, all we have to see now is if it runs above or below bounds 
   // (because RWND_BYTES + packetSeqNum - nextExpectedSeqNum) can be less than 0 or it can go beyond the buffer
   // a neat way to think of offset is an "adjusted sequence number"
-
-  if (offset < 0) return PACKET_DROPPED;
   if (offset + payloadLen > RWND_BYTES) return PACKET_DROPPED;
 
   for (int i = 0; i < payloadLen; i++)
