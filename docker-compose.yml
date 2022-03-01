@@ -9,7 +9,6 @@ services:
       - ./:/project
     networks:
       - common-net
-    privileged: true
 
   node2:
     build: .
