@@ -237,21 +237,51 @@ packets is not definite, and the result is therefore indeterminate.
   int payloadLen = p->getPayloadLength();
   string payloadBuffer = p->getPayload();
 
-  if (nextExpectedSeqNum + RWND_BYTES < packetSeqNum + payloadLen)
-    return PACKET_DROPPED; // runs out of bounds
-
-    // TODO: consider dropping or changing this line 
-  if (packetSeqNum < nextExpectedSeqNum)
-    return PACKET_DROPPED; // runs before bounds
   if (p->isFIN() || m_connectionIdToTCB[connId]->connectionState == FIN_RECEIVED)
     return PACKET_DROPPED;
 
+
+  /*
+  HANDLING OF WRAP AROUND:
+
+  The only time we will see a wrap around in action is if the the sequence number of the packet arrived
+  is less than the nextExpectedSequnceNumber
+
+  What about the case if there is a wrap around of the sequence number within the packet's payload?
+  We don't care; the nextExpectedSeqNum would be an offset such that all the payload should have space.
+  If that runs out of bounds, we should DROP the packet, not accomodate for it by wrapping out in the buffer.
+
+  We NEVER wrap around in index to the start of the buffer. We ONLY wrap around in terms of the next packet's sequence number.
+
+  In such a case that there is a wrap around, then for all we are concerned, we only need to shift the offset
+
+  This logic sets the code as follows:
+  */
+
+  int offset = packetSeqNum - nextExpectedSeqNum;
+
+  if (packetSeqNum < nextExpectedSeqNum)
+  {
+    offset = RWND_BYTES + packetSeqNum - nextExpectedSeqNum;
+    /*
+    RWND_BYTES + packetSeqNum => shift the packets sequence number as if it is moving beyond the maximum sequence number
+    - nextExpectedSeqNum => shift back based on the base offset
+    */
+  }
+
+  // when to drop?
+  // we have an adjusted base offset, all we have to see now is if it runs above or below bounds 
+  // (because RWND_BYTES + packetSeqNum - nextExpectedSeqNum) can be less than 0 or it can go beyond the buffer
+  // a neat way to think of offset is an "adjusted sequence number"
+
+  if (offset < 0) return PACKET_DROPPED;
+  if (offset + payloadLen > RWND_BYTES) return PACKET_DROPPED;
+
   for (int i = 0; i < payloadLen; i++)
   {
-    // TODO: may need to use the sequence number reset wrap around value eventually with modulus
-    int index = (i + packetSeqNum) < nextExpectedSeqNum ? i + packetSeqNum + nextExpectedSeqNum : i + packetSeqNum - nextExpectedSeqNum;
-    connectionBuffer[index] = payloadBuffer[i];
-    connectionBitset[index] = 1; // now mark as used, regardless of overwrite
+
+    connectionBuffer[offset + i] = payloadBuffer[i];
+    connectionBitset[offset + i] = 1; // now mark as used, regardless of overwrite
   }
   return PACKET_ADDED;
 }
