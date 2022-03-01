@@ -262,7 +262,7 @@ packets is not definite, and the result is therefore indeterminate.
 
   if (packetSeqNum < nextExpectedSeqNum)
   {
-    offset = RWND_BYTES + packetSeqNum - nextExpectedSeqNum;
+    offset = MAX_SEQ_NUM + packetSeqNum - nextExpectedSeqNum;
     /*
     RWND_BYTES + packetSeqNum => shift the packets sequence number as if it is moving beyond the maximum sequence number
     - nextExpectedSeqNum => shift back based on the base offset
