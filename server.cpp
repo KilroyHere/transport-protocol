@@ -171,11 +171,7 @@ void Server::handleConnection()
       bool isDup = m_connectionIdToTCB[packetConnId]->connectionExpectedSeqNum == m_connectionIdToTCB[packetConnId]->previousExpectedSeqNum;
       m_connectionIdToTCB[packetConnId]->previousExpectedSeqNum = m_connectionIdToTCB[packetConnId]->connectionExpectedSeqNum;
       bool isDropped = returnValue == PACKET_DROPPED;
-      if (isDropped)
-      {
-        //fir bhi ghamandwa
-        cerr << "Patel said this is dropped " << endl;
-      }
+
       printPacket(p, true, isDropped, false); // for receipt of the packet receive
 
       if (returnValue == PACKET_ADDED || returnValue == PACKET_DUPLICATE)
@@ -370,6 +366,18 @@ bool Server::handleFin(TCPPacket* p, int connId)
   // if fin packet update state and send fin from server
   else if (p->isFIN())
   {
+    
+    // output the packet 
+    bool duplicate = false;
+    if (m_connectionIdToTCB[connId]->connectionState == ConnectionState::FIN_RECEIVED)
+    {
+      // the FIN-ACK was already sent, but I got it again
+      duplicate = true;
+    }
+
+    printPacket(p, true, false, false);
+
+
     // change state to FIN_RECEIVED -> wait for ACK for FIN-ACK
     m_connectionIdToTCB[connId]->connectionState = ConnectionState::FIN_RECEIVED;
     ++m_connectionIdToTCB[connId]->connectionExpectedSeqNum; // updating expected sequence number by 1
@@ -387,6 +395,7 @@ bool Server::handleFin(TCPPacket* p, int connId)
     ++m_connectionIdToTCB[connId]->connectionServerSeqNum;
     // save the FIN packet
     m_connectionIdToTCB[connId]->finPacket = finPacket;
+    printPacket(finPacket, false, false, duplicate);
     setTimer(connId); // set timer
     return true;
   }
@@ -397,6 +406,9 @@ bool Server::handleFin(TCPPacket* p, int connId)
   */
   else if (p->isACK() && m_connectionIdToTCB[p->getConnId()]->connectionState == FIN_RECEIVED)
   {
+    // write out the packet
+    printPacket(p, true, false, false);
+
     // assuming that the received expected sequence number is the same as the one received
     closeConnection(p->getConnId());
     return true;
