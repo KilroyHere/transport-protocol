@@ -361,9 +361,7 @@ void Server::closeConnection(int connId)
   // delete TCB Block
   delete m_connectionIdToTCB[connId];
   m_connectionIdToTCB[connId] = nullptr;
-
-  // remove entry
-  m_connectionIdToTCB.erase(m_connectionIdToTCB.find(connId), m_connectionIdToTCB.end());
+  m_connectionIdToTCB.erase(connId);
 }
 
 /**
@@ -440,7 +438,6 @@ bool Server::handleFin(TCPPacket* p, int connId)
   {
     // write out the packet
     printPacket(p, true, false, false);
-
     // assuming that the received expected sequence number is the same as the one received
     closeConnection(p->getConnId());
     return true;
