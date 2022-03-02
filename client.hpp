@@ -36,8 +36,9 @@ public:
   void closeConnection(); // should handle both cases where server or client needs to do FIN
   // close connection should not be called by client until all packets are not ack'ed
   int congestionControl(); // change by 1 ACK, return the amount the CWND shifted
-
-
+  int shiftWindow(); // returns the number of bytes that the window has shifted
+  void markAck(TCPPacket* p);
+  
   /*
    * 
     resizeWindow
@@ -56,6 +57,7 @@ private:
   std::vector<TCPPacket*> m_packetBuffer;
   std::vector<bool> m_packetACK;
   std::vector<c_time> m_packetTimers;
+  std::vector<bool> m_sentOnce;
   int m_lseek;
 };
 
