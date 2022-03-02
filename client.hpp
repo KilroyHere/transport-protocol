@@ -1,3 +1,6 @@
+#ifndef CLIENT_HPP
+#define CLIENT_HPP
+
 #include <string>
 #include <vector>
 #include <chrono>
@@ -42,16 +45,18 @@ public:
 
   
 private:
-  int fileFd;
-  int sockFd;
-  int cwnd;
-  int ssthresh;
-  struct sockaddr_in serverInfo; // needed since we use sendto() and might have to provide server info each time
-  ConnectionState state;
-  bool fileRead; // file has been completely read and the winodw can't move any forward; can be a local variable in handleConnection() also
-  std::vector<char> buffer;
-  std::vector<TCPPacket*> packetBuffer;
-  std::vector<bool> packetACK;
-  std::vector<c_time> packetTimers;
-  int lseek;
+  int m_fileFd;
+  int m_sockFd;
+  int m_cwnd;
+  int m_ssthresh;
+  struct sockaddr_in m_serverInfo; // needed since we use sendto() and might have to provide server info each time
+  ConnectionState m_state;
+  bool m_fileRead; // file has been completely read and the winodw can't move any forward; can be a local variable in handleConnection() also
+  std::vector<char> m_buffer;
+  std::vector<TCPPacket*> m_packetBuffer;
+  std::vector<bool> m_packetACK;
+  std::vector<c_time> m_packetTimers;
+  int m_lseek;
 };
+
+#endif
