@@ -57,9 +57,12 @@ Server::Server(char *port, std::string saveFolder)
   }
   if (p == NULL)
   {
+    freeaddrinfo(myAddrInfo);
     perror("listener: failed to bind socket");
     exit(1);
   }
+  
+  freeaddrinfo(myAddrInfo);
 }
 Server::~Server()
 {
