@@ -106,38 +106,80 @@ TCPPacket *Client::createTCPPacket(char *buffer, int length)
   return p;
 }
 
+int Client::checkTimersAndRetransmit()
+{
+  for(auto a : m_packetTimers )
+  {
+    if(!checkTimer(RETRANSMISSION_TIMER,))
+  }
+  //Should I check all packets for safety though?
+  // we can discuss this more later
+  // 😭
+}
+
+
 int Client::checkTimerAndCloseConnection()
 {
   if (!checkTimer(CONNECTION_TIMER, CONNECTION_TIMEOUT))
   {
     closeConnection();
   }
+  return 0; // Make void
 }
 
-bool Client::checkTimer(TimerType type, float timerLmit, int index = -1)
+bool Client::checkTimer(TimerType type, float timerLimit, int index = -1) // TODO
 {
   c_time current_time = std::chrono::system_clock::now();
-  c_time start_time ;
+  c_time start_time;
   switch (type)
   {
     case CONNECTION_TIMER:
     {
-
+      start_time = m_connectionTimer;
+      break;
     }
-    start_time = m_connectionTimer;
+    case NORMAL_TIMER:
+    {
+      if(index == -1)
+      {
+        std::cerr << "Incorrect Index for Timer" << std::endl;
+        exit(1);
+      }
+      start_time = m_packetTimers[index];
+      break;
+    }
+    case SYN_PACKET_TIMER:
+    {
+      // start_time =
+      break;
+    }
+    case FIN_PACKET_TIMER:
+    {
+      // start_time =
+      break;
+    }
+    case FIN_END_TIMER:
+    {
+      // start_time =
+      break;
+    }
+    default:
+    {
+      std::cerr << "Incorrect Timer Type" << std::endl;
+      exit(1);
+    }
   }
-
+ 
   std::chrono::duration<double> elapsed_time = current_time - start_time;
   int elapsed_seconds = elapsed_time.count();
-
-  // return (elapsed_seconds < timerLimit);
-}
+  return (elapsed_seconds < timerLimit); // Returns false when timer has elapsed
 }
 
 void Client::closeConnection()
 {
+  close(m_sockFd);
+  close(m_fileFd);
   return;
-  //close file
 }
 
 /**

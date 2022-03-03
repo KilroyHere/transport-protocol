@@ -19,9 +19,9 @@ public:
   void run(); // lol
   void handleConnection();
   void retransmitExpiredPackets(); // and reset the timer
-  void setTimers(); // i don't remember what this was for
-  void setTimer(int index);
-  bool checkTimer(TimerType type, float timerLmit, int index = -1); // have those many seconds elapsed?
+  void setTimers(); // Maybe should be setConnectionTimer?
+  void setTimer(int index); // Set retransmission timer for each packet
+  bool checkTimer(TimerType type, float timerLimit, int index = -1); // have those many seconds elapsed?
   int checkTimerAndCloseConnection();
   int checkTimersAndRetransmit();
   void dropPackets(); // also works with lseek
