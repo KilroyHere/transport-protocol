@@ -1,13 +1,60 @@
 #include <string>
 #include <unistd.h>
+#include <fcntl.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #include <vector>
 #include <chrono>
 #include <iostream>
+#include <errno.h>
+#include <string.h>
 #include "constants.hpp"
 #include "tcp.hpp"
 #include "client.hpp"
+#include "utilities.cpp"
+
+// need to set up a non block recv api
+Client::Client(std::string hostname, std::string port, std::string fileName)
+{
+  struct addrinfo hints, *servInfo, *p;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET; // set to AF_INET to use IPv4
+  hints.ai_socktype = SOCK_DGRAM;
+
+  int ret;
+  if ((ret = getaddrinfo(hostname.c_str(), port.c_str(), &hints, &servInfo)) != 0)
+  {
+    perror("getaddrinfo");
+    exit(1);
+  }
+  int sockfd = -1;
+
+  for (p = servInfo; p != NULL; p = p->ai_next)
+  {
+    if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+    {
+      perror("talker: socket");
+      continue;
+    }
+    break;
+  }
+  // non blocking receiving
+  int r = fcntl(sockfd, F_SETFL, O_NONBLOCK);
+
+  if (p == NULL)
+  {
+    perror("talker: failed to create socket");
+    exit(1);
+  }
+
+  m_serverInfo = *p;
+  freeaddrinfo(servInfo); // free the next, keep the current;
+  servInfo = NULL;
+}
+
 
 /**
  * @brief Changes the values of CWND. Should be called when 1 ACK is received. 
@@ -102,6 +149,26 @@ void Client::markAck(TCPPacket* p)
     else
       m_packetACK[i] = true;
   }
+}
+
+/**
+ * @brief Gives pointer to packet to read, if available in the socket
+ * 
+ * @return Pointer to TCPPacket struct which the caller must delete to free the memory. If 
+ * If socket is empty, return nullptr.
+ */
+TCPPacket* Client::recvPacket()
+{
+  char buffer[MAX_PACKET_LENGTH];
+
+  int bytes = recvfrom(m_sockFd, buffer, MAX_PACKET_LENGTH, 0, NULL, 0); // Already have the address info of the server
+
+  // nothing was available to read at the socket, so no new packet arrived
+  if (bytes == -1) return nullptr;
+
+  std::string stringBuffer = convertCStringtoStandardString(buffer, MAX_PACKET_LENGTH);
+  TCPPacket* p = new TCPPacket(stringBuffer);
+  return p;
 }
 
 int main()

@@ -13,7 +13,7 @@ typedef std::chrono::time_point<std::chrono::system_clock> c_time;
 class Client
 {
 public:
-  Client(std::string hostname, int port, std::string fileName);
+  Client(std::string hostname, std::string port, std::string fileName);
   ~Client();
   int readFromFile(int bytes); // returns number of bytes read
   void run(); // lol
@@ -27,7 +27,7 @@ public:
   void dropPackets(); // also works with lseek
   void addToBuffers(std::vector<TCPPacket*> packets); // add the new packets to the buffers
   void sendPackets(); // send the packets ONLY THAT HAVE NOT BEEN SENT BEFORE
-
+  TCPPacket* recvPacket();
   std::vector<TCPPacket*> readAndCreateTCPPackets();// -> return vector<TCPPacket*> of the new packets created
   // potential sub function: createTCPPackets(vector<char> &, int startIndex, int endIndex) that creates TCP Packets from the byte buffer
   //unlike in the server, since there is only one connection at a given time, we can ensure that each function has complete autonomy over the that connection state
@@ -50,7 +50,7 @@ private:
   int m_sockFd;
   int m_cwnd;
   int m_ssthresh;
-  struct sockaddr_in m_serverInfo; // needed since we use sendto() and might have to provide server info each time
+  struct addrinfo m_serverInfo; // needed since we use sendto() and might have to provide server info each time
   ConnectionState m_state;
   bool m_fileRead; // file has been completely read and the winodw can't move any forward; can be a local variable in handleConnection() also
   std::vector<char> m_buffer;
