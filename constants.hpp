@@ -44,6 +44,7 @@ const int HEADER_LEN = 12;
 const float CONNECTION_TIMEOUT = 10; //seconds
 const float RETRANSMISSION_TIMEOUT = 0.5;
 const float CLIENT_CONNECTION_END_TIMEOUT = 2;
+const int INITIAL_SSTHRESH = 10000;
 
 // typedefs
 #endif

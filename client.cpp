@@ -28,6 +28,8 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   m_flseek = 0;
   m_largestSeqNum = 0;
   m_relSeqNum = 0;
+  m_cwnd = INIT_CLIENT_SEQ_NUM;
+  m_ssthresh = INITIAL_SSTHRESH;
 
   int ret;
   if ((ret = getaddrinfo(hostname.c_str(), port.c_str(), &hints, &servInfo)) != 0)
