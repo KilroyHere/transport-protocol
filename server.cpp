@@ -57,12 +57,9 @@ Server::Server(char *port, std::string saveFolder)
   }
   if (p == NULL)
   {
-    freeaddrinfo(myAddrInfo);
     perror("listener: failed to bind socket");
     exit(1);
   }
-  
-  freeaddrinfo(myAddrInfo);
 }
 Server::~Server()
 {
@@ -88,7 +85,7 @@ void Server::closeTimedOutConnectionsAndRetransmitFIN()
     }
 
     // retransmit fin packet if ACK not received after server FIN-ACK
-    else if (it->second->connectionState == FIN_RECEIVED && !checkTimer(it->first, RETRANSMISSION_TIMER))
+    else if (it->second->connectionState == FIN_RECEIVED && !checkTimer(it->first, RETRANSMISSION_TIMEOUT))
     {
       sendPacket(it->second->clientInfo, it->second->clientInfoLen, it->second->finPacket);
       setTimer(it->first);
@@ -108,7 +105,7 @@ void Server::moveWindow(int connId, int bytes)
   vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
   bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
 
-  if (bytes >= (int) connectionBuffer.size())
+  if (bytes >= (int)connectionBuffer.size())
     return;
 
   for (int i = 0; i < RWND_BYTES - bytes; i++) // last value of i will be RWND_BYTES - bytesToWriite - 1
@@ -189,15 +186,13 @@ void Server::handleConnection()
             false,                                                       // is not FIN
             0,                                                           // no payload
             "");
-        if(synFlag)
+        if (synFlag)
           ++m_connectionIdToTCB[packetConnId]->connectionServerSeqNum;
         sendPacket(&clientInfo, clientInfoLen, ackPacket);
         printPacket(ackPacket, false, false, isDup); // for receipt of the packet send
         delete ackPacket;
         ackPacket = nullptr;
       }
-       
-
     }
     // delete the packet
     delete p;
@@ -231,7 +226,8 @@ packets is not definite, and the result is therefore indeterminate.
   using namespace std;
   if (p == nullptr)
     return PACKET_NULL;
-  if (p->isSYN()) return PACKET_ADDED;
+  if (p->isSYN())
+    return PACKET_ADDED;
   vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
   bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
   int nextExpectedSeqNum = m_connectionIdToTCB[connId]->connectionExpectedSeqNum;
@@ -242,7 +238,6 @@ packets is not definite, and the result is therefore indeterminate.
 
   if (p->isFIN() || m_connectionIdToTCB[connId]->connectionState == FIN_RECEIVED)
     return PACKET_DROPPED;
-
 
   /*
   HANDLING OF WRAP AROUND:
@@ -273,10 +268,11 @@ packets is not definite, and the result is therefore indeterminate.
   }
 
   // when to drop?
-  // we have an adjusted base offset, all we have to see now is if it runs above or below bounds 
+  // we have an adjusted base offset, all we have to see now is if it runs above or below bounds
   // (because RWND_BYTES + packetSeqNum - nextExpectedSeqNum) can be less than 0 or it can go beyond the buffer
   // a neat way to think of offset is an "adjusted sequence number"
-  if (offset + payloadLen > RWND_BYTES) return PACKET_DROPPED;
+  if (offset + payloadLen > RWND_BYTES)
+    return PACKET_DROPPED;
 
   for (int i = 0; i < payloadLen; i++)
   {
@@ -298,7 +294,7 @@ int Server::flushBuffer(int connId)
   vector<char> &connectionBuffer = m_connectionIdToTCB[connId]->connectionBuffer;
   bitset<RWND_BYTES> &connectionBitset = m_connectionIdToTCB[connId]->connectionBitvector;
   int &nextExpectedSeqNum = m_connectionIdToTCB[connId]->connectionExpectedSeqNum;
-  
+
   // find the number of bytes to write
   int bytesToWrite = 0;
   for (; bytesToWrite < RWND_BYTES && connectionBitset[bytesToWrite] == 1; bytesToWrite++)
@@ -361,9 +357,6 @@ int Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clien
  */
 void Server::closeConnection(int connId)
 {
-  //Close file 
-  int fd = m_connectionIdToTCB[connId]->connectionFileDescriptor;
-  close(fd);
   // delete TCB Block
   delete m_connectionIdToTCB[connId];
   m_connectionIdToTCB[connId] = nullptr;
@@ -395,15 +388,15 @@ bool Server::checkTimer(int connId, float timerLimit)
  * @brief handleFin
  * @return boolean if fin was handled or not
  */
-bool Server::handleFin(TCPPacket* p, int connId)
+bool Server::handleFin(TCPPacket *p, int connId)
 {
   if (p->getSeqNum() < m_connectionIdToTCB[connId]->connectionExpectedSeqNum)
     return false;
   // if fin packet update state and send fin from server
   else if (p->isFIN())
   {
-    
-    // output the packet 
+
+    // output the packet
     bool duplicate = false;
     if (m_connectionIdToTCB[connId]->connectionState == ConnectionState::FIN_RECEIVED)
     {
@@ -413,7 +406,6 @@ bool Server::handleFin(TCPPacket* p, int connId)
 
     printPacket(p, true, false, false);
 
-
     // change state to FIN_RECEIVED -> wait for ACK for FIN-ACK
     m_connectionIdToTCB[connId]->connectionState = ConnectionState::FIN_RECEIVED;
     ++m_connectionIdToTCB[connId]->connectionExpectedSeqNum; // updating expected sequence number by 1
@@ -422,10 +414,10 @@ bool Server::handleFin(TCPPacket* p, int connId)
         m_connectionIdToTCB[connId]->connectionServerSeqNum,   // sequence number
         m_connectionIdToTCB[connId]->connectionExpectedSeqNum, // ack number
         connId,                                                // connection id
-        true,                                                          // is ACK
-        false,                                                         // is not SYN
-        true,                                                          // is FIN
-        0,                                                             // no payload
+        true,                                                  // is ACK
+        false,                                                 // is not SYN
+        true,                                                  // is FIN
+        0,                                                     // no payload
         "");
     sendPacket(m_connectionIdToTCB[connId]->clientInfo, m_connectionIdToTCB[connId]->clientInfoLen, finPacket);
     ++m_connectionIdToTCB[connId]->connectionServerSeqNum;
@@ -472,12 +464,12 @@ int Server::sendPacket(sockaddr *clientInfo, int clientInfoLen, TCPPacket *p)
     return -1;
   }
 
-    if ((bytesSent = sendto( m_sockFd, packetCString, packetLength, 0, clientInfo, clientInfoLen) == -1))
-    {
-      std::string errorMessage = "Packet send Error: " + std::string(strerror(errno));
-      outputToStderr(errorMessage);
-    } 
-    return bytesSent;
+  if ((bytesSent = sendto(m_sockFd, packetCString, packetLength, 0, clientInfo, clientInfoLen) == -1))
+  {
+    std::string errorMessage = "Packet send Error: " + std::string(strerror(errno));
+    outputToStderr(errorMessage);
+  }
+  return bytesSent;
 }
 
 int Server::writeToFile(int connId, char *message, int len)
@@ -498,7 +490,7 @@ void Server::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
 {
   std::string message;
 
-  if(recvd)
+  if (recvd)
     message = "RECV";
   else
     message = "SEND";
@@ -507,13 +499,13 @@ void Server::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
     message = "DROP";
 
   message = message + " " + std::to_string(p->getSeqNum()) + " " + std::to_string(p->getAckNum()) + " " + std::to_string(p->getConnId()) + " ";
-  if(p->isACK())
+  if (p->isACK())
     message += "ACK ";
-  if(p->isSYN())
+  if (p->isSYN())
     message += "SYN ";
-  if(p->isFIN())
+  if (p->isFIN())
     message += "FIN ";
-  if(dup && !recvd)
+  if (dup && !recvd)
     message += "DUP ";
   message.pop_back(); // remove the trailing space
   outputToStdout(message);
@@ -528,13 +520,12 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
-  if(!(atoi(argv[1])))
+  if (!(atoi(argv[1])))
   {
     cout << "Incorrect format of ports provided" << endl;
     exit(1); //TODO: need to change and implement the exact exit functions with different exit codes.
   }
-  
+
   Server server(argv[1], argv[2]);
   server.run();
-
 }
