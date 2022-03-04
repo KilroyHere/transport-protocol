@@ -24,6 +24,11 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   hints.ai_family = AF_INET; // set to AF_INET to use IPv4
   hints.ai_socktype = SOCK_DGRAM;
 
+  m_blseek = 0;
+  m_flseek = 0;
+  m_largestSeqNum = 0;
+  m_relSeqNum = 0;
+
   int ret;
   if ((ret = getaddrinfo(hostname.c_str(), port.c_str(), &hints, &servInfo)) != 0)
   {
@@ -69,6 +74,10 @@ int Client::congestionControl()
   (Congestion Avoidance)  If CWND >= SS-THRESH: CWND += (512 * 512) / CWND
 */
   int newCwnd = m_cwnd;
+  if (m_cwnd == MAX_CWND_BYTES)
+  {
+    newCwnd = m_cwnd;
+  }
   if (m_cwnd < m_ssthresh)
   {
     newCwnd += MAX_PAYLOAD_LENGTH;
@@ -123,8 +132,9 @@ int Client::shiftWindow()
     m_sentOnce[i] = false;
   }
 
-  // TODO: recheck this line based on final implementation
-  m_lseek += shiftedBytes;
+  m_blseek += shiftedBytes;
+  m_relSeqNum += shiftedBytes;
+  m_relSeqNum %= MAX_SEQ_NUM + 1;
 
   return shiftedBytes;
 }

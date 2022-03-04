@@ -64,6 +64,8 @@ private:
   int m_ackNumber;
   int m_connectionId;
   c_time connectionTimer();
+  int m_blseek;
+  int m_flseek;
   int m_largestSeqNum;
   int m_relSeqNum;
 
