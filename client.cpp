@@ -75,6 +75,10 @@ int Client::congestionControl()
   (Congestion Avoidance)  If CWND >= SS-THRESH: CWND += (512 * 512) / CWND
 */
   int newCwnd = m_cwnd;
+  if (m_cwnd == MAX_CWND_BYTES)
+  {
+    newCwnd = m_cwnd;
+  }
   if (m_cwnd < m_ssthresh) 
   {
     newCwnd += MAX_PAYLOAD_LENGTH;

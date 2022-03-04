@@ -1,6 +1,9 @@
 #ifndef CONSTANTS_HPP
 #define CONSTANTS_HPP
 
+// client constants
+const int MAX_CWND_BYTES = 51200;
+
 // server constants 
 const int RWND_BYTES = 51200;
 const int INIT_SERVER_SEQ_NUM = 4321;
