@@ -1,0 +1,198 @@
+diff --git a/client.cpp b/client.cpp
+index fd03b2d..9377225 100644
+--- a/client.cpp
++++ b/client.cpp
+@@ -60,29 +60,31 @@ std::vector<TCPPacket *> Client::readAndCreateTCPPackets()
+   std::vector<TCPPacket *> packets;
+   char *fileBuffer = new char[m_avlblwnd];
+   int bytesRead;
+-  int newlseekPos = lseek(m_fileFd, m_readlseek, SEEK_SET); // SEEK_SET start from start of file
+-  m_readlseek = newlseekPos;
++  lseek(m_fileFd, m_flseek, SEEK_SET); // SEEK_SET start from start of file // todo  error  
+   if ((bytesRead = read(m_fileFd, fileBuffer, m_avlblwnd)) == -1)
+   {
+     std::string errorMessage = "File write Error: " + std::string(strerror(errno));
+     std::cerr << errorMessage << std::endl;
+     exit(1);
+   }
+-  // Can't check if file read or not bcos the reliable lseek is out of scope here.
+-
++  int seqNo = m_flseek;
++  m_flseek += bytesRead;
+   int indexIntoFileBuffer = 0;
+   while (indexIntoFileBuffer < bytesRead)
+   {
+     int length = ((bytesRead - indexIntoFileBuffer) > MAX_PAYLOAD_LENGTH) ? MAX_PAYLOAD_LENGTH : bytesRead - indexIntoFileBuffer;
+-    TCPPacket *p = createTCPPacket(fileBuffer + indexIntoFileBuffer, length);
++    TCPPacket *p = createTCPPacket(fileBuffer + indexIntoFileBuffer, length, seqNo);
+     packets.push_back(p);
+     indexIntoFileBuffer += length;
++    seqNo += length;
++    seqNo %= (MAX_SEQ_NUM + 1);
+   }
++  m_largestSeqNum = packets[packets.size() - 1]->getSeqNum();
+   delete fileBuffer;
+   return packets;
+ }
+ 
+-TCPPacket *Client::createTCPPacket(char *buffer, int length)
++TCPPacket *Client::createTCPPacket(char *buffer, int length,int seqNo)
+ {
+   // Ack handler
+   bool ackFlag;
+@@ -94,7 +96,7 @@ TCPPacket *Client::createTCPPacket(char *buffer, int length)
+ 
+   std::string payload(buffer, length);
+   TCPPacket *p = new TCPPacket(
+-      m_sequenceNumber,
++      seqNo,
+       ackNo,
+       m_connectionId,
+       ackFlag,
+@@ -106,28 +108,41 @@ TCPPacket *Client::createTCPPacket(char *buffer, int length)
+   return p;
+ }
+ 
+-int Client::checkTimersAndRetransmit()
++bool Client::checkTimersforDrop()
++{
++  for(int i = 0 ; i < m_packetTimers.size() ; i++)
++  {
++    if(!checkTimer(NORMAL_TIMER,RETRANSMISSION_TIMER,i));
++    {
++      return true; //Need to drop packet here
++    }
++  }
++  return false;
++}
++
++void Client::closeConnection()
+ {
+-  for(auto a : m_packetTimers )
++  TCPPacket *packet;
++  while(!m_packetBuffer.empty())
+   {
+-    if(!checkTimer(RETRANSMISSION_TIMER,))
++    packet = m_packetBuffer.back();
++    m_packetBuffer.pop_back();
++    delete packet;
+   }
+-  //Should I check all packets for safety though?
+-  // we can discuss this more later
+-  // 😭
+ }
+ 
+ 
+-int Client::checkTimerAndCloseConnection()
++bool Client::checkTimerAndCloseConnection()
+ {
+   if (!checkTimer(CONNECTION_TIMER, CONNECTION_TIMEOUT))
+   {
+     closeConnection();
++    return true;
+   }
+-  return 0; // Make void
++  return false;
+ }
+ 
+-bool Client::checkTimer(TimerType type, float timerLimit, int index = -1) // TODO
++bool Client::checkTimer(TimerType type, float timerLimit, int index = -1)
+ {
+   c_time current_time = std::chrono::system_clock::now();
+   c_time start_time;
+@@ -150,17 +165,17 @@ bool Client::checkTimer(TimerType type, float timerLimit, int index = -1) // TOD
+     }
+     case SYN_PACKET_TIMER:
+     {
+-      // start_time =
++      start_time = m_synPacketTimer;
+       break;
+     }
+     case FIN_PACKET_TIMER:
+     {
+-      // start_time =
++      start_time = m_finPacketTimer;
+       break;
+     }
+     case FIN_END_TIMER:
+     {
+-      // start_time =
++      start_time = m_finEndTimer;
+       break;
+     }
+     default:
+diff --git a/client.hpp b/client.hpp
+index 03293b1..60b4eeb 100644
+--- a/client.hpp
++++ b/client.hpp
+@@ -15,23 +15,27 @@ class Client
+ public:
+   Client(std::string hostname, std::string port, std::string fileName);
+   ~Client();
+-  int readFromFile(int bytes); // returns number of bytes read
+   void run(); // lol
+   void handleConnection();
+-  void retransmitExpiredPackets(); // and reset the timer
++
++  // TODO
+   void setTimers(); // Maybe should be setConnectionTimer?
+   void setTimer(int index); // Set retransmission timer for each packet
++
+   bool checkTimer(TimerType type, float timerLimit, int index = -1); // have those many seconds elapsed?
+-  int checkTimerAndCloseConnection();
+-  int checkTimersAndRetransmit();
++  bool checkTimerAndCloseConnection(); // Returns true if connection closed
++  bool checkTimersforDrop(); //Return true if packets are to be dropped
++
++  // TODO
+   void dropPackets(); // also works with lseek
++
+   void addToBuffers(std::vector<TCPPacket*> packets); // add the new packets to the buffers
+   void sendPackets(); // send the packets ONLY THAT HAVE NOT BEEN SENT BEFORE
+   TCPPacket* recvPacket();
+   std::vector<TCPPacket*> readAndCreateTCPPackets();// -> return vector<TCPPacket*> of the new packets created
+   // potential sub function: createTCPPackets(vector<char> &, int startIndex, int endIndex) that creates TCP Packets from the byte buffer
+   //unlike in the server, since there is only one connection at a given time, we can ensure that each function has complete autonomy over the that connection state
+-  TCPPacket* createTCPPacket(char* buffer,int length);  
++  TCPPacket* createTCPPacket(char* buffer,int length,int seqNo);  
+   void handshake();  // hi!
+   void handwave();   // bye!
+   void closeConnection(); // should handle both cases where server or client needs to do FIN
+@@ -55,18 +59,21 @@ private:
+   int m_cwnd;
+   int m_ssthresh;
+   int m_avlblwnd;
++  int m_largestSeqNum;
+   c_time m_connectionTimer;
++  c_time m_synPacketTimer;
++  c_time m_finPacketTimer;
++  c_time m_finEndTimer;
+   struct addrinfo m_serverInfo; // needed since we use sendto() and might have to provide server info each time
+   ConnectionState m_state;
+   bool m_fileRead; // file has been completely read and the winodw can't move any forward; can be a local variable in handleConnection() also
+   bool m_firstPacketAcked; //Set in Constructor as false, update when first packet acked
+-  std::vector<char> m_buffer;
+   std::vector<TCPPacket*> m_packetBuffer;
+   std::vector<bool> m_packetACK;
+   std::vector<c_time> m_packetTimers;
+   std::vector<bool> m_sentOnce;
+   int m_lseek;
+-  int m_readlseek;
++  int m_flseek;
+ };
+ 
+ #endif
+\ No newline at end of file
+diff --git a/constants.hpp b/constants.hpp
+index 856c906..3135e40 100644
+--- a/constants.hpp
++++ b/constants.hpp
+@@ -4,7 +4,7 @@
+ // server constants
+ const int RWND_BYTES = 51200;
+ const int INIT_SERVER_SEQ_NUM = 4321;
+-const int CONNECTION_TIMEOUT = 10; //seconds
++const float CONNECTION_TIMEOUT = 10; //seconds
+ const float RETRANSMISSION_TIMER = 0.5;
+ 
+ // client constants

@@ -60,24 +60,25 @@ std::vector<TCPPacket *> Client::readAndCreateTCPPackets()
   std::vector<TCPPacket *> packets;
   char *fileBuffer = new char[m_avlblwnd];
   int bytesRead;
-  int newlseekPos = lseek(m_fileFd, m_readlseek, SEEK_SET); // SEEK_SET start from start of file
-  m_readlseek = newlseekPos;
+  lseek(m_fileFd, m_flseek, SEEK_SET); // SEEK_SET start from start of file // todo  error  
   if ((bytesRead = read(m_fileFd, fileBuffer, m_avlblwnd)) == -1)
   {
     std::string errorMessage = "File write Error: " + std::string(strerror(errno));
     std::cerr << errorMessage << std::endl;
     exit(1);
   }
-  // Can't check if file read or not bcos the reliable lseek is out of scope here.
-
   int indexIntoFileBuffer = 0;
   while (indexIntoFileBuffer < bytesRead)
   {
     int length = ((bytesRead - indexIntoFileBuffer) > MAX_PAYLOAD_LENGTH) ? MAX_PAYLOAD_LENGTH : bytesRead - indexIntoFileBuffer;
+
     TCPPacket *p = createTCPPacket(fileBuffer + indexIntoFileBuffer, length);
+    m_sequenceNumber = (m_sequenceNumber + length) % (MAX_SEQ_NUM+1);
     packets.push_back(p);
     indexIntoFileBuffer += length;
   }
+  if(!packets.empty())
+    m_largestSeqNum = packets[packets.size() - 1]->getSeqNum();
   delete fileBuffer;
   return packets;
 }
@@ -102,32 +103,49 @@ TCPPacket *Client::createTCPPacket(char *buffer, int length)
       false,
       length,
       payload);
-  m_sequenceNumber = (m_sequenceNumber + length) % MAX_SEQ_NUM;
+  m_sequenceNumber = (m_sequenceNumber + length) % (MAX_SEQ_NUM + 1);
   return p;
 }
 
-int Client::checkTimersAndRetransmit()
+bool Client::checkTimersforDrop()
 {
-  for(auto a : m_packetTimers )
+  for(int i = 0 ; i < m_packetTimers.size() ; i++)
   {
-    if(!checkTimer(RETRANSMISSION_TIMER,))
+    if(!checkTimer(NORMAL_TIMER,RETRANSMISSION_TIMER,i));
+    {
+      return true; //Need to drop packet here
+    }
   }
-  //Should I check all packets for safety though?
-  // we can discuss this more later
-  // 😭
+  return false;
+}
+
+void Client::dropPackets()
+{
+  TCPPacket *packet;
+  while(!m_packetBuffer.empty())
+  {
+    packet = m_packetBuffer.back();
+    m_packetBuffer.pop_back();
+    delete packet;
+  }
+  m_packetTimers.clear();
+  m_packetACK.clear();
+  m_sequenceNumber = m_lseek;
+  m_flseek = m_lseek;
 }
 
 
-int Client::checkTimerAndCloseConnection()
+bool Client::checkTimerAndCloseConnection()
 {
   if (!checkTimer(CONNECTION_TIMER, CONNECTION_TIMEOUT))
   {
     closeConnection();
+    return true;
   }
-  return 0; // Make void
+  return false;
 }
 
-bool Client::checkTimer(TimerType type, float timerLimit, int index = -1) // TODO
+bool Client::checkTimer(TimerType type, float timerLimit, int index = -1)
 {
   c_time current_time = std::chrono::system_clock::now();
   c_time start_time;
@@ -150,17 +168,17 @@ bool Client::checkTimer(TimerType type, float timerLimit, int index = -1) // TOD
     }
     case SYN_PACKET_TIMER:
     {
-      // start_time =
+      start_time = m_synPacketTimer;
       break;
     }
     case FIN_PACKET_TIMER:
     {
-      // start_time =
+      start_time = m_finPacketTimer;
       break;
     }
     case FIN_END_TIMER:
     {
-      // start_time =
+      start_time = m_finEndTimer;
       break;
     }
     default:
@@ -298,6 +316,33 @@ TCPPacket *Client::recvPacket()
   TCPPacket *p = new TCPPacket(stringBuffer);
   return p;
 }
+
+
+void Client::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
+{
+  std::string message;
+
+  if(recvd)
+    message = "RECV";
+  else
+    message = "SEND";
+
+  if (recvd && dropped)
+    message = "DROP";
+
+  message = message + " " + std::to_string(p->getSeqNum()) + " " + std::to_string(p->getAckNum()) + " " + std::to_string(p->getConnId()) + " ";
+  if(p->isACK())
+    message += "ACK ";
+  if(p->isSYN())
+    message += "SYN ";
+  if(p->isFIN())
+    message += "FIN ";
+  if(dup && !recvd)
+    message += "DUP ";
+  message.pop_back(); // remove the trailing space
+  std::cout << std::endl; 
+}
+
 
 int main()
 {

@@ -15,15 +15,13 @@ class Client
 public:
   Client(std::string hostname, std::string port, std::string fileName);
   ~Client();
-  int readFromFile(int bytes); // returns number of bytes read
   void run(); // lol
   void handleConnection();
-  void retransmitExpiredPackets(); // and reset the timer
   void setTimers(); // Maybe should be setConnectionTimer?
   void setTimer(int index); // Set retransmission timer for each packet
   bool checkTimer(TimerType type, float timerLimit, int index = -1); // have those many seconds elapsed?
-  int checkTimerAndCloseConnection();
-  int checkTimersAndRetransmit();
+  bool checkTimerAndCloseConnection(); // Returns true if connection closed
+  bool checkTimersforDrop(); //Return true if packets are to be dropped
   void dropPackets(); // also works with lseek
   void addToBuffers(std::vector<TCPPacket*> packets); // add the new packets to the buffers
   void sendPackets(); // send the packets ONLY THAT HAVE NOT BEEN SENT BEFORE
@@ -55,18 +53,22 @@ private:
   int m_cwnd;
   int m_ssthresh;
   int m_avlblwnd;
+  int m_largestSeqNum;
   c_time m_connectionTimer;
+  c_time m_synPacketTimer;
+  c_time m_finPacketTimer;
+  c_time m_finEndTimer;
   struct addrinfo m_serverInfo; // needed since we use sendto() and might have to provide server info each time
   ConnectionState m_state;
   bool m_fileRead; // file has been completely read and the winodw can't move any forward; can be a local variable in handleConnection() also
   bool m_firstPacketAcked; //Set in Constructor as false, update when first packet acked
-  std::vector<char> m_buffer;
+  void printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup);
   std::vector<TCPPacket*> m_packetBuffer;
   std::vector<bool> m_packetACK;
   std::vector<c_time> m_packetTimers;
   std::vector<bool> m_sentOnce;
   int m_lseek;
-  int m_readlseek;
+  int m_flseek;
 };
 
 #endif
