@@ -459,6 +459,11 @@ void Client::sendPackets()
   }
 }
 
+/**
+ * @brief Determines if a packet is a Dup or not 
+ * 
+ * @param p TCP Packet inspected 
+ */
 bool Client::isDup(TCPPacket *p)
 {
   int seqNum = p->getSeqNum();
@@ -473,6 +478,12 @@ bool Client::isDup(TCPPacket *p)
   }
 }
 
+/**
+ * @brief sends TCP packet 
+ * 
+ * @param p The TCP Packet to send 
+ * @return int bytes send 
+ */
 int Client::sendPacket(TCPPacket *p)
 {
   int packetLength;
@@ -491,6 +502,44 @@ int Client::sendPacket(TCPPacket *p)
     // outputToStderr(errorMessage);
   }
   return bytesSent;
+}
+
+// SYN_PACKET_TIMER,
+// CONNECTION_TIMER,
+// NORMAL_TIMER,
+// FIN_PACKET_TIMER,
+// FIN_END_TIMER
+
+/**
+ * @brief set timer by saving current timestamp
+ */
+void Client::setTimer(TimerType type, int index = -1)
+{
+  switch (type)
+  {
+  case SYN_PACKET_TIMER:
+    /* code */
+    m_synPacketTimer = std::chrono::system_clock::now();
+    break;
+
+  case CONNECTION_TIMER:
+    /* code */
+    m_connectionTimer = std::chrono::system_clock::now();
+    break;
+
+  case FIN_PACKET_TIMER:
+    /* code */
+    m_finPacketTimer = std::chrono::system_clock::now();
+    break;
+
+  case FIN_END_TIMER:
+    /* code */
+    m_finEndTimer = std::chrono::system_clock::now();
+    break;
+
+  default:
+    break;
+  }
 }
 
 int main()

@@ -19,7 +19,6 @@ public:
   void run();                  // lol
   void handleConnection();
   void retransmitExpiredPackets(); // and reset the timer
-  void setTimers();                // i don't remember what this was for
 
   void setTimer(TimerType type, int index = -1);
   bool checkTimer(TimerType type, float timerLimit, int index = -1);
@@ -68,6 +67,12 @@ private:
   int m_flseek;
   int m_largestSeqNum;
   int m_relSeqNum;
+
+  // timers
+  c_time m_synPacketTimer;
+  c_time m_connectionTimer;
+  c_time m_finPacketTimer;
+  c_time m_finEndTimer;
 
   // private function
   bool verifySynAck(TCPPacket *synAckPacket); // verifies the syn-ack packet of server
