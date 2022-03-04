@@ -55,34 +55,47 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   servInfo = NULL;
 }
 
+/**
+ * @brief Reading Available Window and Create TCP Packets
+ * 
+ * @return std::vector<TCPPacket *> 
+ */
 std::vector<TCPPacket *> Client::readAndCreateTCPPackets()
 {
-  std::vector<TCPPacket *> packets;
-  char *fileBuffer = new char[m_avlblwnd];
-  int bytesRead;
-  lseek(m_fileFd, m_flseek, SEEK_SET); // SEEK_SET start from start of file // todo  error  
+  std::vector<TCPPacket *> packets; //Creating Packets to send
+  char *fileBuffer = new char[m_avlblwnd]; //File buffer of size Available Window
+  int bytesRead; // Bytes Read
+  lseek(m_fileFd, m_flseek, SEEK_SET); // SEEK_SET start from start of file 
   if ((bytesRead = read(m_fileFd, fileBuffer, m_avlblwnd)) == -1)
   {
     std::string errorMessage = "File write Error: " + std::string(strerror(errno));
     std::cerr << errorMessage << std::endl;
     exit(1);
   }
-  int indexIntoFileBuffer = 0;
+  m_flseek += bytesRead; //Next time start reading from this position
+  int indexIntoFileBuffer = 0; //Index to specify packet starting point
   while (indexIntoFileBuffer < bytesRead)
   {
     int length = ((bytesRead - indexIntoFileBuffer) > MAX_PAYLOAD_LENGTH) ? MAX_PAYLOAD_LENGTH : bytesRead - indexIntoFileBuffer;
 
     TCPPacket *p = createTCPPacket(fileBuffer + indexIntoFileBuffer, length);
-    m_sequenceNumber = (m_sequenceNumber + length) % (MAX_SEQ_NUM+1);
+    m_sequenceNumber = (m_sequenceNumber + length) % (MAX_SEQ_NUM+1); // Updating sequence number using packet length
     packets.push_back(p);
     indexIntoFileBuffer += length;
   }
   if(!packets.empty())
-    m_largestSeqNum = packets[packets.size() - 1]->getSeqNum();
+    m_largestSeqNum = packets[packets.size() - 1]->getSeqNum(); //Largest Sequence Number is the sequence_no of last packet created
   delete fileBuffer;
   return packets;
 }
 
+/**
+ * @brief Creates TCP Packet from payload
+ * 
+ * @param buffer 
+ * @param length 
+ * @return TCPPacket* 
+ */
 TCPPacket *Client::createTCPPacket(char *buffer, int length)
 {
   // Ack handler
@@ -101,12 +114,18 @@ TCPPacket *Client::createTCPPacket(char *buffer, int length)
       ackFlag,
       false,
       false,
-      length,
+      payload.size(),
       payload);
   m_sequenceNumber = (m_sequenceNumber + length) % (MAX_SEQ_NUM + 1);
   return p;
 }
 
+/**
+ * @brief Checks retransmission timer for all packets
+ * 
+ * @return true 
+ * @return false 
+ */
 bool Client::checkTimersforDrop()
 {
   for(int i = 0 ; i < m_packetTimers.size() ; i++)
@@ -119,22 +138,31 @@ bool Client::checkTimersforDrop()
   return false;
 }
 
+/**
+ * @brief Drops all packets
+ * 
+ */
 void Client::dropPackets()
 {
   TCPPacket *packet;
-  while(!m_packetBuffer.empty())
+  while(!m_packetBuffer.empty()) //Deletes all TCPPackets from the buffer
   {
     packet = m_packetBuffer.back();
     m_packetBuffer.pop_back();
     delete packet;
   }
-  m_packetTimers.clear();
+  m_packetTimers.clear(); 
   m_packetACK.clear();
-  m_sequenceNumber = m_lseek;
-  m_flseek = m_lseek;
+  m_sequenceNumber = m_lseek; // Sequence number goes to m_lseek
+  m_flseek = m_lseek; // Forward lseek goes back to m_lseek
 }
 
-
+/**
+ * @brief Checks Connection Timer and clses connection in case of lapse
+ * 
+ * @return true 
+ * @return false 
+ */
 bool Client::checkTimerAndCloseConnection()
 {
   if (!checkTimer(CONNECTION_TIMER, CONNECTION_TIMEOUT))
@@ -145,6 +173,15 @@ bool Client::checkTimerAndCloseConnection()
   return false;
 }
 
+/**
+ * @brief Checks Timer passed in parameters
+ * 
+ * @param type 
+ * @param timerLimit 
+ * @param index 
+ * @return true 
+ * @return false 
+ */
 bool Client::checkTimer(TimerType type, float timerLimit, int index = -1)
 {
   c_time current_time = std::chrono::system_clock::now();
@@ -193,6 +230,10 @@ bool Client::checkTimer(TimerType type, float timerLimit, int index = -1)
   return (elapsed_seconds < timerLimit); // Returns false when timer has elapsed
 }
 
+/**
+ * @brief Close Connection
+ * 
+ */
 void Client::closeConnection()
 {
   close(m_sockFd);
@@ -317,7 +358,14 @@ TCPPacket *Client::recvPacket()
   return p;
 }
 
-
+/**
+ * @brief Prints the given packet
+ * 
+ * @param p 
+ * @param recvd 
+ * @param dropped 
+ * @param dup 
+ */
 void Client::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
 {
   std::string message;
