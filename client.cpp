@@ -112,7 +112,7 @@ TCPPacket *Client::createTCPPacket(char *buffer, int length)
     ackFlag = false;
   int ackNo = ackFlag ? m_ackNumber : 0;
 
-  std::string payload(buffer, length);
+  std::string payload = convertCStringtoStandardString(buffer, length);
   TCPPacket *p = new TCPPacket(
       m_sequenceNumber,
       ackNo,
@@ -135,7 +135,7 @@ bool Client::checkTimersforDrop()
 {
   for(int i = 0 ; i < m_packetTimers.size() ; i++)
   {
-    if(!checkTimer(NORMAL_TIMER,RETRANSMISSION_TIMER,i));
+    if(!checkTimer(NORMAL_TIMER,RETRANSMISSION_TIMEOUT,i));
     {
       return true; //Need to drop packet here
     }
@@ -158,7 +158,7 @@ void Client::dropPackets()
   }
   m_packetTimers.clear(); 
   m_packetACK.clear();
-  m_sequenceNumber = m_blseek; // Sequence number goes to m_blseek
+  m_sequenceNumber = m_blseek % (MAX_SEQ_NUM + 1); // Sequence number goes to m_blseek
   m_flseek = m_blseek; // Forward lseek goes back to m_blseek
 }
 
