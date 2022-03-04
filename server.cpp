@@ -57,9 +57,12 @@ Server::Server(char *port, std::string saveFolder)
   }
   if (p == NULL)
   {
+    freeaddrinfo(myAddrInfo);
     perror("listener: failed to bind socket");
     exit(1);
   }
+  
+  freeaddrinfo(myAddrInfo);
 }
 Server::~Server()
 {
@@ -358,6 +361,9 @@ int Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clien
  */
 void Server::closeConnection(int connId)
 {
+  //Close file 
+  int fd = m_connectionIdToTCB[connId]->connectionFileDescriptor;
+  close(fd);
   // delete TCB Block
   delete m_connectionIdToTCB[connId];
   m_connectionIdToTCB[connId] = nullptr;
