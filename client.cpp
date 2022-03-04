@@ -65,7 +65,13 @@ std::vector<TCPPacket *> Client::readAndCreateTCPPackets()
   std::vector<TCPPacket *> packets; //Creating Packets to send
   char *fileBuffer = new char[m_avlblwnd]; //File buffer of size Available Window
   int bytesRead; // Bytes Read
-  lseek(m_fileFd, m_flseek, SEEK_SET); // SEEK_SET start from start of file 
+  if(lseek(m_fileFd, m_flseek, SEEK_SET) == -1) // SEEK_SET start from start of file 
+  {
+    std::string errorMessage = "File lseek error : " + std::string(strerror(errno));
+    std::cerr << errorMessage << std::endl;
+    exit(1);
+  }
+
   if ((bytesRead = read(m_fileFd, fileBuffer, m_avlblwnd)) == -1)
   {
     std::string errorMessage = "File write Error: " + std::string(strerror(errno));
