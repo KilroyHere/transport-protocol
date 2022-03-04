@@ -159,8 +159,8 @@ void Client::dropPackets()
   }
   m_packetTimers.clear(); 
   m_packetACK.clear();
-  m_sequenceNumber = m_lseek; // Sequence number goes to m_lseek
-  m_flseek = m_lseek; // Forward lseek goes back to m_lseek
+  m_sequenceNumber = m_blseek; // Sequence number goes to m_blseek
+  m_flseek = m_blseek; // Forward lseek goes back to m_blseek
 }
 
 /**
@@ -316,7 +316,7 @@ int Client::shiftWindow()
   }
 
   // TODO: recheck this line based on final implementation
-  m_lseek += shiftedBytes;
+  m_blseek += shiftedBytes;
 
   return shiftedBytes;
 }

@@ -67,7 +67,7 @@ private:
   std::vector<bool> m_packetACK;
   std::vector<c_time> m_packetTimers;
   std::vector<bool> m_sentOnce;
-  int m_lseek;
+  int m_blseek;
   int m_flseek;
 };
 
