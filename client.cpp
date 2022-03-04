@@ -122,7 +122,6 @@ TCPPacket *Client::createTCPPacket(char *buffer, int length)
       false,
       payload.size(),
       payload);
-  m_sequenceNumber = (m_sequenceNumber + length) % (MAX_SEQ_NUM + 1);
   return p;
 }
 
