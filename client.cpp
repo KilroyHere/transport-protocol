@@ -229,7 +229,7 @@ void Client::handshake()
   setTimer(CONNECTION_TIMER); // set the connection timer as the first packet
   setTimer(SYN_PACKET_TIMER); // set the syn packet timer
 
-  TCPPacket *synAckPacket;
+  TCPPacket *synAckPacket = nullptr;
   while (true)
   {
     synAckPacket = recvPacket(); // recv the synAck packet
@@ -258,7 +258,7 @@ void Client::handshake()
     }
 
     // if connection timeout -> close connection
-    if (!checkTimer(SYN_PACKET_TIMER, RETRANSMISSION_TIMER))
+    if (!checkTimer(SYN_PACKET_TIMER, RETRANSMISSION_TIMEOUT))
     {
       // send packets and reset timers
       sendPacket(synPacket);
@@ -353,7 +353,7 @@ void Client::handwave()
     }
 
     // if connection timeout -> close connection
-    if (!checkTimer(FIN_PACKET_TIMER, RETRANSMISSION_TIMER))
+    if (!checkTimer(FIN_PACKET_TIMER, RETRANSMISSION_TIMEOUT))
     {
       // send packets and reset timers
       sendPacket(finPacket);
@@ -390,7 +390,7 @@ void Client::handwave()
   }
 
   TCPPacket *serverFinPacket;
-  while (checkTimer(FIN_END_TIMER, CLIENT_CONNECTION_END_TIMER))
+  while (checkTimer(FIN_END_TIMER, CLIENT_CONNECTION_END_TIMEOUT))
   {
     serverFinPacket = recvPacket(); // recv the fin packet
 
@@ -469,12 +469,12 @@ bool Client::isDup(TCPPacket *p)
   int seqNum = p->getSeqNum();
   if (m_largestSeqNum < m_relSeqNum)
   {
-    return (seqNum <= m_sequenceNumber) || (seqNum > m_relSeqNum);
+    return (seqNum <= m_largestSeqNum) || (seqNum > m_relSeqNum);
   }
 
   else
   {
-    return (m_relSeqNum < m_sequenceNumber) || (m_sequenceNumber <= m_largestSeqNum);
+    return (m_relSeqNum < seqNum) || (seqNum <= m_largestSeqNum);
   }
 }
 
@@ -496,7 +496,7 @@ int Client::sendPacket(TCPPacket *p)
     return -1;
   }
 
-  if ((bytesSent = sendto(m_sockFd, packetCString, packetLength, 0, m_serverInfo.ai_addr, m_serverInfoLen) == -1))
+  if ((bytesSent = sendto(m_sockFd, packetCString, packetLength, 0, m_serverInfo.ai_addr, m_serverInfo.ai_addrlen) == -1))
   {
     std::string errorMessage = "Packet send Error: " + std::string(strerror(errno));
     // outputToStderr(errorMessage);

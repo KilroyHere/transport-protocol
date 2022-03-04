@@ -51,7 +51,6 @@ private:
   int m_cwnd;
   int m_ssthresh;
   struct addrinfo m_serverInfo; // needed since we use sendto() and might have to provide server info each time
-  socklen_t m_serverInfoLen;
   ConnectionState m_state;
   bool m_fileRead; // file has been completely read and the winodw can't move any forward; can be a local variable in handleConnection() also
   std::vector<TCPPacket *> m_packetBuffer;

@@ -42,8 +42,8 @@ const int MAX_SEQ_NUM = 102400;
 const int MAX_ACK_NUM = 102400;
 const int HEADER_LEN = 12;
 const float CONNECTION_TIMEOUT = 10; //seconds
-const float RETRANSMISSION_TIMER = 0.5;
-const float CLIENT_CONNECTION_END_TIMER = 2;
+const float RETRANSMISSION_TIMEOUT = 0.5;
+const float CLIENT_CONNECTION_END_TIMEOUT = 2;
 
 // typedefs
 #endif
