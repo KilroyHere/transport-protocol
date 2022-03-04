@@ -63,9 +63,200 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
 }
 
 /**
- * @brief Changes the values of CWND. Should be called when 1 ACK is received. 
- * Should also be careful about duplicate ACKs to ensure they do not affect congestionControl
+ * @brief Reading Available Window and Create TCP Packets
  * 
+ * @return std::vector<TCPPacket *> 
+ */
+std::vector<TCPPacket *> Client::readAndCreateTCPPackets()
+{
+  std::vector<TCPPacket *> packets; //Creating Packets to send
+  char *fileBuffer = new char[m_avlblwnd]; //File buffer of size Available Window
+  int bytesRead; // Bytes Read
+  if(lseek(m_fileFd, m_flseek, SEEK_SET) == -1) // SEEK_SET start from start of file 
+  {
+    std::string errorMessage = "File lseek error : " + std::string(strerror(errno));
+    std::cerr << errorMessage << std::endl;
+    exit(1);
+  }
+
+  if ((bytesRead = read(m_fileFd, fileBuffer, m_avlblwnd)) == -1)
+  {
+    std::string errorMessage = "File write Error: " + std::string(strerror(errno));
+    std::cerr << errorMessage << std::endl;
+    exit(1);
+  }
+  m_flseek += bytesRead; //Next time start reading from this position
+  int indexIntoFileBuffer = 0; //Index to specify packet starting point
+  while (indexIntoFileBuffer < bytesRead)
+  {
+    int length = ((bytesRead - indexIntoFileBuffer) > MAX_PAYLOAD_LENGTH) ? MAX_PAYLOAD_LENGTH : bytesRead - indexIntoFileBuffer;
+
+    TCPPacket *p = createTCPPacket(fileBuffer + indexIntoFileBuffer, length);
+    m_sequenceNumber = (m_sequenceNumber + length) % (MAX_SEQ_NUM+1); // Updating sequence number using packet length
+    packets.push_back(p);
+    indexIntoFileBuffer += length;
+  }
+  if(!packets.empty())
+    m_largestSeqNum = packets[packets.size() - 1]->getSeqNum(); //Largest Sequence Number is the sequence_no of last packet created
+  delete fileBuffer;
+  return packets;
+}
+
+/**
+ * @brief Creates TCP Packet from payload
+ * 
+ * @param buffer 
+ * @param length 
+ * @return TCPPacket* 
+ */
+TCPPacket *Client::createTCPPacket(char *buffer, int length)
+{
+  // Ack handler
+  bool ackFlag;
+  if (!m_firstPacketAcked)
+    ackFlag = true;
+  else
+    ackFlag = false;
+  int ackNo = ackFlag ? m_ackNumber : 0;
+
+  std::string payload = convertCStringtoStandardString(buffer, length);
+  TCPPacket *p = new TCPPacket(
+      m_sequenceNumber,
+      ackNo,
+      m_connectionId,
+      ackFlag,
+      false,
+      false,
+      payload.size(),
+      payload);
+  return p;
+}
+
+/**
+ * @brief Checks retransmission timer for all packets
+ * 
+ * @return true 
+ * @return false 
+ */
+bool Client::checkTimersforDrop()
+{
+  for(int i = 0 ; i < m_packetTimers.size() ; i++)
+  {
+    if(!checkTimer(NORMAL_TIMER,RETRANSMISSION_TIMEOUT,i));
+    {
+      return true; //Need to drop packet here
+    }
+  }
+  return false;
+}
+
+/**
+ * @brief Drops all packets
+ * 
+ */
+void Client::dropPackets()
+{
+  TCPPacket *packet;
+  while(!m_packetBuffer.empty()) //Deletes all TCPPackets from the buffer
+  {
+    packet = m_packetBuffer.back();
+    m_packetBuffer.pop_back();
+    delete packet;
+  }
+  m_packetTimers.clear(); 
+  m_packetACK.clear();
+  m_sequenceNumber = m_blseek % (MAX_SEQ_NUM + 1); // Sequence number goes to m_blseek
+  m_flseek = m_blseek; // Forward lseek goes back to m_blseek
+}
+
+/**
+ * @brief Checks Connection Timer and clses connection in case of lapse
+ * 
+ * @return true 
+ * @return false 
+ */
+bool Client::checkTimerAndCloseConnection()
+{
+  if (!checkTimer(CONNECTION_TIMER, CONNECTION_TIMEOUT))
+  {
+    closeConnection();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @brief Checks Timer passed in parameters
+ * 
+ * @param type 
+ * @param timerLimit 
+ * @param index 
+ * @return true 
+ * @return false 
+ */
+bool Client::checkTimer(TimerType type, float timerLimit, int index = -1)
+{
+  c_time current_time = std::chrono::system_clock::now();
+  c_time start_time;
+  switch (type)
+  {
+    case CONNECTION_TIMER:
+    {
+      start_time = m_connectionTimer;
+      break;
+    }
+    case NORMAL_TIMER:
+    {
+      if(index == -1)
+      {
+        std::cerr << "Incorrect Index for Timer" << std::endl;
+        exit(1);
+      }
+      start_time = m_packetTimers[index];
+      break;
+    }
+    case SYN_PACKET_TIMER:
+    {
+      start_time = m_synPacketTimer;
+      break;
+    }
+    case FIN_PACKET_TIMER:
+    {
+      start_time = m_finPacketTimer;
+      break;
+    }
+    case FIN_END_TIMER:
+    {
+      start_time = m_finEndTimer;
+      break;
+    }
+    default:
+    {
+      std::cerr << "Incorrect Timer Type" << std::endl;
+      exit(1);
+    }
+  }
+ 
+  std::chrono::duration<double> elapsed_time = current_time - start_time;
+  int elapsed_seconds = elapsed_time.count();
+  return (elapsed_seconds < timerLimit); // Returns false when timer has elapsed
+}
+
+/**
+ * @brief Close Connection
+ * 
+ */
+void Client::closeConnection()
+{
+  close(m_sockFd);
+  close(m_fileFd);
+  return;
+}
+
+/**
+ * @brief Changes the values of CWND. Should be called when 1 ACK is received.
+ * Should also be careful about duplicate ACKs to ensure they do not affect congestionControl
+ *
  * @return the number of bytes congestion control has shifted forward
  */
 int Client::congestionControl()
@@ -96,10 +287,10 @@ int Client::congestionControl()
 
 /**
  * @brief Shift all resources relating to the current window forward for all inorder ACKs received from the start
- * 
+ *
  * NOTE: This does not take any responsibility of moving the byte buffer itself forward
- * 
- * @return Number of payload bytes that have been shifted forward 
+ *
+ * @return Number of payload bytes that have been shifted forward
  */
 int Client::shiftWindow()
 {
@@ -165,8 +356,8 @@ void Client::markAck(TCPPacket *p)
 
 /**
  * @brief Gives pointer to packet to read, if available in the socket
- * 
- * @return Pointer to TCPPacket struct which the caller must delete to free the memory. If 
+ *
+ * @return Pointer to TCPPacket struct which the caller must delete to free the memory. If
  * If socket is empty, return nullptr.
  */
 TCPPacket *Client::recvPacket()
@@ -182,6 +373,39 @@ TCPPacket *Client::recvPacket()
   std::string stringBuffer = convertCStringtoStandardString(buffer, MAX_PACKET_LENGTH);
   TCPPacket *p = new TCPPacket(stringBuffer);
   return p;
+}
+
+/**
+ * @brief Prints the given packet
+ * 
+ * @param p 
+ * @param recvd 
+ * @param dropped 
+ * @param dup 
+ */
+void Client::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
+{
+  std::string message;
+
+  if(recvd)
+    message = "RECV";
+  else
+    message = "SEND";
+
+  if (recvd && dropped)
+    message = "DROP";
+
+  message = message + " " + std::to_string(p->getSeqNum()) + " " + std::to_string(p->getAckNum()) + " " + std::to_string(p->getConnId()) + " ";
+  if(p->isACK())
+    message += "ACK ";
+  if(p->isSYN())
+    message += "SYN ";
+  if(p->isFIN())
+    message += "FIN ";
+  if(dup && !recvd)
+    message += "DUP ";
+  message.pop_back(); // remove the trailing space
+  std::cout << std::endl; 
 }
 
 bool Client::verifySynAck(TCPPacket *synAckPacket)
