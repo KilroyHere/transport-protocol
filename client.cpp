@@ -19,6 +19,7 @@
 
 Client::Client(std::string hostname, std::string port, std::string fileName)
 {
+  using namespace std;
   struct addrinfo hints, *servInfo, *p;
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET; // set to AF_INET to use IPv4
@@ -34,7 +35,7 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   int ret;
   if ((ret = getaddrinfo(hostname.c_str(), port.c_str(), &hints, &servInfo)) != 0)
   {
-    perror("getaddrinfo");
+    cerr << "ERROR: in getaddrinfo " << strerror(errno) << endl;
     exit(1);
   }
   int sockfd = -1;
@@ -43,7 +44,7 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   {
     if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
     {
-      perror("talker: socket");
+      cerr << "ERROR: in socket " << strerror(errno) << endl;
       continue;
     }
     break;
@@ -51,13 +52,13 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   // non blocking receiving
   if (fcntl(sockfd, F_SETFL, O_NONBLOCK) == -1)
   {
-    perror("fcntl failed");
+    cerr << "ERROR: in fcntl " << strerror(errno) << endl;
     exit(1);
   }
 
   if (p == NULL)
   {
-    perror("talker: failed to create socket");
+    cerr << "ERROR: in socket " << strerror(errno) << endl;
     exit(1);
   }
 
@@ -83,14 +84,14 @@ std::vector<TCPPacket *> Client::readAndCreateTCPPackets()
   int bytesRead; // Bytes Read
   if(lseek(m_fileFd, m_flseek, SEEK_SET) == -1) // SEEK_SET start from start of file 
   {
-    std::string errorMessage = "File lseek error : " + std::string(strerror(errno));
+    std::string errorMessage = "ERROR: File lseek error : " + std::string(strerror(errno));
     std::cerr << errorMessage << std::endl;
     exit(1);
   }
 
   if ((bytesRead = read(m_fileFd, fileBuffer, m_avlblwnd)) == -1)
   {
-    std::string errorMessage = "File write Error: " + std::string(strerror(errno));
+    std::string errorMessage = "ERROR: File write Error: " + std::string(strerror(errno));
     std::cerr << errorMessage << std::endl;
     exit(1);
   }
@@ -220,7 +221,7 @@ bool Client::checkTimer(TimerType type, float timerLimit, int index)
     {
       if(index == -1)
       {
-        std::cerr << "Incorrect Index for Timer" << std::endl;
+        std::cerr << "ERROR: Incorrect Index for Timer" << std::endl;
         exit(1);
       }
       start_time = m_packetTimers[index];
@@ -815,40 +816,11 @@ bool Client::allPacketsAcked()
 }
 
 /**
- * @brief 
+ * @brief Entry point for running client services
  * 
  */
 void Client::run()
 {
-  
-  /*
-  handshake()
-
-
-while (true)
-{
-	#3
-	checkTimerAndCloseConnection(); // if a 10 s timer has expired, close the connection  ANY CLOSE CONNECTION WILL BE MADE BY MR PATEL AND MR PATEL ONLY
-  drop = checkTimersAndRetransmit(); // check all timers; if retransmission required you will retransmit. for that packet, you will drop everythign after it. 
-  if (drop) 
-  {
-  	#1
-  	dropPackets()
-  }
-  packets= readAndCreateTCPPackets();
-  
-  addToBuffers(packets); // adds to all three buffers
-  sendPackets();
-  
-  #2
-  TCPPacket p = recvPacket(); //Non Blocking
-  if (p is fin) exit;
-  markAck(p)
-  int shifted = shiftWindow();
-  int cwndChange = congestionControl();
-  int avlblWin = shifted + cwndChange;
-}
-    */
   using namespace std;
   handshake();
   while(true)
@@ -895,13 +867,13 @@ int main(int argc, char * argv[])
   using namespace std;
   if (argc != 4)
   {
-    cout << "Incorrect number of arguments provided!" << endl;
+    cout << "ERROR: Incorrect number of arguments provided!" << endl;
     exit(1);
   }
 
   if (!(atoi(argv[2])))
   {
-    cout << "Incorrect format of ports provided" << endl;
+    cout << "ERROR: Incorrect format of ports provided" << endl;
     exit(1); //TODO: need to change and implement the exact exit functions with different exit codes.
   }
 
