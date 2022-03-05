@@ -16,7 +16,7 @@
 #include "client.hpp"
 #include "utilities.cpp"
 
-// need to set up a non block recv api
+
 Client::Client(std::string hostname, std::string port, std::string fileName)
 {
   struct addrinfo hints, *servInfo, *p;
@@ -142,8 +142,10 @@ bool Client::checkTimersforDrop()
 {
   for(int i = 0 ; i < m_packetTimers.size() ; i++)
   {
-    if(!checkTimer(NORMAL_TIMER,RETRANSMISSION_TIMEOUT,i));
+    if(!checkTimer(NORMAL_TIMER,RETRANSMISSION_TIMEOUT,i) && m_packetACK[i] == false)
     {
+      m_ssthresh = m_cwnd / 2;
+      m_cwnd = MAX_PAYLOAD_LENGTH;
       return true; //Need to drop packet here
     }
   }
@@ -194,7 +196,7 @@ bool Client::checkTimerAndCloseConnection()
  * @return true 
  * @return false 
  */
-bool Client::checkTimer(TimerType type, float timerLimit, int index = -1)
+bool Client::checkTimer(TimerType type, float timerLimit, int index)
 {
   c_time current_time = std::chrono::system_clock::now();
   c_time start_time;
@@ -332,7 +334,7 @@ int Client::shiftWindow()
   return shiftedBytes;
 }
 
-void Client::markAck(TCPPacket *p)
+int Client::markAck(TCPPacket *p)
 {
   using namespace std;
   if (p == nullptr)
@@ -345,13 +347,44 @@ void Client::markAck(TCPPacket *p)
   // currently no implementation of what to do when ACK is beyond the window
   // since it is not clear which function to bring that into
 
+  if (m_packetBuffer.empty())
+    return PACKET_DROPPED;
+
+  int windowBegin = m_packetBuffer[0]->getSeqNum();
+  int windowEnd = m_packetBuffer[0]->getSeqNum();
+  bool wrapAroundAck = false;
+  if (
+      (windowBegin < windowEnd && windowBegin <= ack && ack < windowEnd) ||
+      (windowBegin > windowEnd && (windowBegin <= ack || ack < windowEnd))
+    )
+    {
+      if(ack < windowBegin && ack <= windowEnd)
+      {
+        wrapAroundAck = true;
+      }
+      // potential code that says that ack is valid
+    }
+  else
+  {
+    return PACKET_DROPPED;
+  }
+  
   for (int i = 0; i < m_packetBuffer.size(); i++)
   {
-    if (ack < m_packetBuffer[i]->getSeqNum())
+    if (wrapAroundAck && m_packetBuffer[i]->getSeqNum() > windowEnd) 
+      m_packetACK[i] = true;
+    else if (ack < m_packetBuffer[i]->getSeqNum())
       break;
     else
       m_packetACK[i] = true;
   }
+
+  /*
+  Add functionality to check if the ack is in the current window, if it is then 
+  every packet in the window before the ack will be acked (cumulative ack). If the 
+  packet is not in the window then by design choice I drop it
+  */
+
 }
 
 /**
@@ -679,8 +712,7 @@ void Client::sendPackets()
       m_packetTimers[i] = std::chrono::system_clock::now(); // start timer
 
       bool isDuplicate = isDup(m_packetBuffer[i]); // check if the packet is a duplicate packet;
-
-      // print to stdout
+      printPacket(m_packetBuffer[i], false, false, isDuplicate);
     }
   }
 }
@@ -739,7 +771,7 @@ int Client::sendPacket(TCPPacket *p)
 /**
  * @brief set timer by saving current timestamp
  */
-void Client::setTimer(TimerType type, int index = -1)
+void Client::setTimer(TimerType type, int index)
 {
   switch (type)
   {
@@ -768,7 +800,106 @@ void Client::setTimer(TimerType type, int index = -1)
   }
 }
 
-int main()
+bool Client::allPacketsAcked() 
 {
-  std::cerr << "client is not implemented yet" << std::endl;
+  for (auto i : m_packetACK)
+  {
+    if (!i) return false;
+  }
+  return true;
+}
+
+/**
+ * @brief 
+ * 
+ */
+void Client::run()
+{
+  
+  /*
+  handshake()
+
+
+while (true)
+{
+	#3
+	checkTimerAndCloseConnection(); // if a 10 s timer has expired, close the connection  ANY CLOSE CONNECTION WILL BE MADE BY MR PATEL AND MR PATEL ONLY
+  drop = checkTimersAndRetransmit(); // check all timers; if retransmission required you will retransmit. for that packet, you will drop everythign after it. 
+  if (drop) 
+  {
+  	#1
+  	dropPackets()
+  }
+  packets= readAndCreateTCPPackets();
+  
+  addToBuffers(packets); // adds to all three buffers
+  sendPackets();
+  
+  #2
+  TCPPacket p = recvPacket(); //Non Blocking
+  if (p is fin) exit;
+  markAck(p)
+  int shifted = shiftWindow();
+  int cwndChange = congestionControl();
+  int avlblWin = shifted + cwndChange;
+}
+    */
+  using namespace std;
+  handshake();
+  while(true)
+  {
+    // connection closing here were close due to timeout and will 
+    // not involve sending of any fin packets 
+    if(checkTimerAndCloseConnection())
+      return;
+    bool drop = checkTimersforDrop();
+    if (drop) 
+      m_avlblwnd = MAX_PAYLOAD_LENGTH; // reset available window to 1 packet size in case of drop
+    vector<TCPPacket*> newPackets = readAndCreateTCPPackets();
+
+    if (m_avlblwnd == 0 && newPackets.size() == 0 && allPacketsAcked())
+    {
+      break;  // reached end of file, nothing more to read, and nothing new to receive
+    }
+
+    addToBuffers(newPackets);
+    sendPackets();
+    
+    // recvs only 1 packet per iteration of the loop 
+    TCPPacket* p = recvPacket();
+    if (p == nullptr)  // unblocking receive call did not receive any packet in the current iteration
+      continue; // no other states will be changed
+    
+    setTimer(CONNECTION_TIMER); // received a message from the server, reset the connection timer
+
+    // call handle fin 
+    int packetStatus = markAck(p);
+
+    bool packetDropped = packetStatus == PACKET_DROPPED;
+    printPacket(p, true, packetDropped, false);
+    
+    int shifted = shiftWindow();
+    int cwndChange = congestionControl();
+    int m_avlblwnd = shifted + cwndChange;
+  } 
+  handwave();
+}
+
+int main(int argc, char * argv[])
+{
+  using namespace std;
+  if (argc != 4)
+  {
+    cout << "Incorrect number of arguments provided!" << endl;
+    exit(1);
+  }
+
+  if (!(atoi(argv[2])))
+  {
+    cout << "Incorrect format of ports provided" << endl;
+    exit(1); //TODO: need to change and implement the exact exit functions with different exit codes.
+  }
+
+  Client client(argv[1], argv[2], argv[3]);
+  client.run();
 }
