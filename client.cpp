@@ -75,7 +75,7 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   m_fileFd = open(fileName.c_str(), O_RDONLY);
   if (m_fileFd == -1) 
   {
-    cerr << "ERROR: Unable to open file "<< strerror(errno) << endl;
+    cerr << "ERROR: Unable to open file: " << fileName << ". "<< strerror(errno) << endl;
     exit(1);
   }
 }
@@ -183,18 +183,19 @@ bool Client::checkTimersforDrop()
  */
 void Client::dropPackets()
 {
-  TCPPacket *packet;
   while(!m_packetBuffer.empty()) //Deletes all TCPPackets from the buffer
   {
+    TCPPacket *packet;
     packet = m_packetBuffer.back();
     m_packetBuffer.pop_back();
-    delete packet;
+    // delete packet;
   }
   m_ssthresh = m_cwnd / 2;
   m_cwnd = MAX_PAYLOAD_LENGTH;
   m_avlblwnd = m_cwnd;
   m_packetTimers.clear(); 
   m_packetACK.clear();
+  m_sentOnce.clear();
   m_sequenceNumber = m_blseek % (MAX_SEQ_NUM + 1); // Sequence number goes to m_blseek
   m_flseek = m_blseek; // Forward lseek goes back to m_blseek
 }
@@ -859,8 +860,8 @@ void Client::run()
     // not involve sending of any fin packets 
 
     //TODO: MAKE SURE YOU UNCOMMENT THIS PLEASE PLEASE PLEASE
-    if(checkTimerAndCloseConnection())
-      return;
+    // if(checkTimerAndCloseConnection())
+    //   return;
     bool drop = checkTimersforDrop();
     if (drop) 
       {
@@ -869,7 +870,7 @@ void Client::run()
       }
     vector<TCPPacket*> newPackets = readAndCreateTCPPackets();
 
-    if (m_avlblwnd == 0 && newPackets.size() == 0 && allPacketsAcked())
+    if ( /* m_avlblwnd == 0 && */  newPackets.empty() && m_packetBuffer.empty())
     {
       break;  // reached end of file, nothing more to read, and nothing new to receive
     }
