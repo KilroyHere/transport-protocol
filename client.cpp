@@ -49,7 +49,11 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
     break;
   }
   // non blocking receiving
-  int r = fcntl(sockfd, F_SETFL, O_NONBLOCK);
+  if (fcntl(sockfd, F_SETFL, O_NONBLOCK) == -1)
+  {
+    perror("fcntl failed");
+    exit(1);
+  }
 
   if (p == NULL)
   {
@@ -60,6 +64,11 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   m_serverInfo = *p;
   freeaddrinfo(servInfo); // free the next, keep the current;
   servInfo = NULL;
+}
+
+Client::~Client()
+{
+  // assumption is that closeConnections() was called before already, so the destructor has to do nothing
 }
 
 /**
@@ -140,7 +149,7 @@ TCPPacket *Client::createTCPPacket(char *buffer, int length)
  */
 bool Client::checkTimersforDrop()
 {
-  for(int i = 0 ; i < m_packetTimers.size() ; i++)
+  for(long unsigned int i = 0 ; i < m_packetTimers.size() ; i++)
   {
     if(!checkTimer(NORMAL_TIMER,RETRANSMISSION_TIMEOUT,i) && m_packetACK[i] == false)
     {
@@ -299,7 +308,7 @@ int Client::shiftWindow()
   int shiftedIndices = 0;
   int shiftedBytes = 0;
 
-  for (int i = 0; i < m_packetBuffer.size(); i++)
+  for (int i = 0; i < (int) m_packetBuffer.size(); i++)
   {
     if (!m_packetACK[i])
       break;
@@ -308,7 +317,7 @@ int Client::shiftWindow()
   }
 
   // shift the values ahead
-  for (int i = shiftedIndices; i < m_packetBuffer.size(); i++)
+  for (int i = shiftedIndices; i < (int) m_packetBuffer.size(); i++)
   {
     delete m_packetBuffer[i - shiftedIndices];
     m_packetBuffer[i - shiftedIndices] = nullptr;
@@ -319,7 +328,7 @@ int Client::shiftWindow()
   }
 
   // initialize the values at the end
-  for (int i = m_packetBuffer.size() - shiftedIndices; i < m_packetBuffer.size(); i++)
+  for (int i = m_packetBuffer.size() - shiftedIndices; i < (int) m_packetBuffer.size(); i++)
   {
     m_packetBuffer[i] = nullptr;
     m_packetACK[i] = false;
@@ -340,7 +349,7 @@ int Client::markAck(TCPPacket *p)
   if (p == nullptr)
   {
     cerr << "Unexpected nullptr found in Client::markAck" << endl;
-    return;
+    return PACKET_NULL;
   }
   int ack = p->getAckNum();
 
@@ -369,7 +378,7 @@ int Client::markAck(TCPPacket *p)
     return PACKET_DROPPED;
   }
   
-  for (int i = 0; i < m_packetBuffer.size(); i++)
+  for (int i = 0; i < (int) m_packetBuffer.size(); i++)
   {
     if (wrapAroundAck && m_packetBuffer[i]->getSeqNum() > windowEnd) 
       m_packetACK[i] = true;
@@ -379,11 +388,7 @@ int Client::markAck(TCPPacket *p)
       m_packetACK[i] = true;
   }
 
-  /*
-  Add functionality to check if the ack is in the current window, if it is then 
-  every packet in the window before the ack will be acked (cumulative ack). If the 
-  packet is not in the window then by design choice I drop it
-  */
+  return PACKET_ADDED; // ACK changes were successfully added to the buffer
 
 }
 
@@ -658,7 +663,7 @@ void Client::handwave()
     {
       sendPacket(clientAckPacket);
       delete serverFinPacket;
-      serverFinPacket == nullptr;
+      serverFinPacket = nullptr;
     }
   }
 
@@ -702,7 +707,7 @@ void Client::addToBuffers(std::vector<TCPPacket *> packets)
 void Client::sendPackets()
 {
   /* Assuming all 4 vectors are always of the same size */
-  for (int i = 0; i < m_sentOnce.size(); i++)
+  for (int i = 0; i < (int) m_sentOnce.size(); i++)
   {
     // We send the packets which are marked as false in sentOnce
     if (!m_sentOnce[i])
@@ -880,7 +885,7 @@ while (true)
     
     int shifted = shiftWindow();
     int cwndChange = congestionControl();
-    int m_avlblwnd = shifted + cwndChange;
+    m_avlblwnd = shifted + cwndChange;
   } 
   handwave();
 }
