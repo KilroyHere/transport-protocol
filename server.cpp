@@ -174,7 +174,7 @@ void Server::handleConnection()
 
       printPacket(p, true, isDropped, false); // for receipt of the packet receive
 
-      if (returnValue == PACKET_ADDED || returnValue == PACKET_DUPLICATE)
+      if (returnValue == PACKET_ADDED || returnValue == PACKET_DUPLICATE || returnValue == PACKET_DROPPED)
       {
         // if reached this block, then packet was valid and ACK should be sent
         TCPPacket *ackPacket = new TCPPacket(
@@ -260,7 +260,7 @@ packets is not definite, and the result is therefore indeterminate.
 
   if (packetSeqNum < nextExpectedSeqNum)
   {
-    offset = MAX_SEQ_NUM + packetSeqNum - nextExpectedSeqNum;
+    offset = MAX_SEQ_NUM + packetSeqNum - nextExpectedSeqNum + 1;
     /*
     RWND_BYTES + packetSeqNum => shift the packets sequence number as if it is moving beyond the maximum sequence number
     - nextExpectedSeqNum => shift back based on the base offset
@@ -330,7 +330,7 @@ int Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clien
     // create an output file
     // TODO: assumed existance of save directory
     std::string pathName = m_folderName + "/" + std::to_string(packetConnId) + ".file";
-    int fd = open(pathName.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0644);
+    int fd = open(pathName.c_str(), O_CREAT | O_WRONLY , 0644);
 
     // set up TCB and start timer
     m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, ConnectionState::AWAITING_ACK, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
@@ -408,7 +408,7 @@ bool Server::handleFin(TCPPacket *p, int connId)
 
     // change state to FIN_RECEIVED -> wait for ACK for FIN-ACK
     m_connectionIdToTCB[connId]->connectionState = ConnectionState::FIN_RECEIVED;
-    ++m_connectionIdToTCB[connId]->connectionExpectedSeqNum; // updating expected sequence number by 1
+    m_connectionIdToTCB[connId]->connectionExpectedSeqNum = (p->getSeqNum() + 1) % (MAX_SEQ_NUM + 1);
 
     TCPPacket *finPacket = new TCPPacket(
         m_connectionIdToTCB[connId]->connectionServerSeqNum,   // sequence number
@@ -420,7 +420,6 @@ bool Server::handleFin(TCPPacket *p, int connId)
         0,                                                     // no payload
         "");
     sendPacket(m_connectionIdToTCB[connId]->clientInfo, m_connectionIdToTCB[connId]->clientInfoLen, finPacket);
-    ++m_connectionIdToTCB[connId]->connectionServerSeqNum;
     // save the FIN packet
     m_connectionIdToTCB[connId]->finPacket = finPacket;
     printPacket(finPacket, false, false, duplicate);
