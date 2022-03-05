@@ -864,10 +864,10 @@ void Client::run()
     //   return;
     bool drop = checkTimersforDrop();
     if (drop) 
-      {
-        m_avlblwnd = MAX_PAYLOAD_LENGTH; // reset available window to 1 packet size in case of drop
-        dropPackets();
-      }
+    {
+      m_avlblwnd = MAX_PAYLOAD_LENGTH; // reset available window to 1 packet size in case of drop
+      dropPackets();
+    }
     vector<TCPPacket*> newPackets = readAndCreateTCPPackets();
 
     if ( /* m_avlblwnd == 0 && */  newPackets.empty() && m_packetBuffer.empty())

@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include "server.hpp"
 #include "constants.hpp"
-#include "utilities.cpp"
+#include "utilities.hpp"
 #include "tcp.hpp"
 
 // SERVER IMPLEMENTATION
