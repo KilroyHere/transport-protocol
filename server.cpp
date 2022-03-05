@@ -516,14 +516,20 @@ int main(int argc, char *argv[])
   using namespace std;
   if (argc != 3)
   {
-    cout << "Incorrect number of arguments provided!" << endl;
+    cerr << "ERROR: Incorrect number of arguments provided!" << endl;
     exit(1);
   }
 
-  if (!(atoi(argv[1])))
+  if (!(atoi(argv[1]) && strcmp(argv[1],"0")))
   {
-    cout << "Incorrect format of ports provided" << endl;
+    cerr << "ERROR: Incorrect format of ports provided" << endl;
     exit(1); //TODO: need to change and implement the exact exit functions with different exit codes.
+  }
+
+  if(atoi(argv[1]) > 65535 || atoi(argv[1]) < 0 )
+  {
+    cerr << "ERROR: Port invalid" << endl;
+    exit(1);
   }
 
   Server server(argv[1], argv[2]);
