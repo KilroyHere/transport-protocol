@@ -16,7 +16,6 @@
 #include "client.hpp"
 #include "utilities.hpp"
 
-
 Client::Client(std::string hostname, std::string port, std::string fileName)
 {
   using namespace std;
@@ -33,9 +32,9 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   m_avlblwnd = m_cwnd;
   m_ssthresh = INITIAL_SSTHRESH;
   m_sequenceNumber = INIT_CLIENT_SEQ_NUM;
-  m_ackNumber = 0; // initially no ack being sent
+  m_ackNumber = 0;    // initially no ack being sent
   m_connectionId = 0; // initially connection id is 0 when client sends SYN
-
+  m_firstPacketAcked = false;
   int ret;
   if ((ret = getaddrinfo(hostname.c_str(), port.c_str(), &hints, &servInfo)) != 0)
   {
@@ -46,7 +45,7 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
 
   for (p = servInfo; p != NULL; p = p->ai_next)
   {
-    sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol); 
+    sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
     if (sockfd == -1)
     {
       cerr << "ERROR: in socket " << strerror(errno) << endl;
@@ -71,9 +70,9 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   m_serverInfo = *p;
   m_rememberToFree = servInfo;
 
-  // open the file 
+  // open the file
   m_fileFd = open(fileName.c_str(), O_RDONLY);
-  if (m_fileFd == -1) 
+  if (m_fileFd == -1)
   {
     cerr << "ERROR: Unable to open file: " << fileName << ". "<< strerror(errno) << endl;
     exit(1);
@@ -93,10 +92,10 @@ Client::~Client()
  */
 std::vector<TCPPacket *> Client::readAndCreateTCPPackets()
 {
-  std::vector<TCPPacket *> packets; //Creating Packets to send
-  char *fileBuffer = new char[m_avlblwnd]; //File buffer of size Available Window
-  int bytesRead; // Bytes Read
-  if(lseek(m_fileFd, m_flseek, SEEK_SET) == -1) // SEEK_SET start from start of file 
+  std::vector<TCPPacket *> packets;              //Creating Packets to send
+  char *fileBuffer = new char[m_avlblwnd];       //File buffer of size Available Window
+  int bytesRead;                                 // Bytes Read
+  if (lseek(m_fileFd, m_flseek, SEEK_SET) == -1) // SEEK_SET start from start of file
   {
     std::string errorMessage = "ERROR: File lseek error : " + std::string(strerror(errno));
     std::cerr << errorMessage << std::endl;
@@ -109,14 +108,14 @@ std::vector<TCPPacket *> Client::readAndCreateTCPPackets()
     std::cerr << errorMessage << std::endl;
     exit(1);
   }
-  m_flseek += bytesRead; //Next time start reading from this position
+  m_flseek += bytesRead;       //Next time start reading from this position
   int indexIntoFileBuffer = 0; //Index to specify packet starting point
   while (indexIntoFileBuffer < bytesRead)
   {
     int length = ((bytesRead - indexIntoFileBuffer) > MAX_PAYLOAD_LENGTH) ? MAX_PAYLOAD_LENGTH : bytesRead - indexIntoFileBuffer;
 
     TCPPacket *p = createTCPPacket(fileBuffer + indexIntoFileBuffer, length);
-    m_sequenceNumber = (m_sequenceNumber + length) % (MAX_SEQ_NUM+1); // Updating sequence number using packet length
+    m_sequenceNumber = (m_sequenceNumber + length) % (MAX_SEQ_NUM + 1); // Updating sequence number using packet length
     packets.push_back(p);
     indexIntoFileBuffer += length;
   }
@@ -167,11 +166,11 @@ TCPPacket *Client::createTCPPacket(char *buffer, int length)
  */
 bool Client::checkTimersforDrop()
 {
-  for(long unsigned int i = 0 ; i < m_packetTimers.size() ; i++)
+  for (long unsigned int i = 0; i < m_packetTimers.size(); i++)
   {
-    if(!checkTimer(NORMAL_TIMER,RETRANSMISSION_TIMEOUT,i) && m_packetACK[i] == false)
+    if (!checkTimer(NORMAL_TIMER, RETRANSMISSION_TIMEOUT, i) && m_packetACK[i] == false)
     {
-      return true; 
+      return true;
     }
   }
   return false;
@@ -193,11 +192,11 @@ void Client::dropPackets()
   m_ssthresh = m_cwnd / 2;
   m_cwnd = MAX_PAYLOAD_LENGTH;
   m_avlblwnd = m_cwnd;
-  m_packetTimers.clear(); 
+  m_packetTimers.clear();
   m_packetACK.clear();
   m_sentOnce.clear();
   m_sequenceNumber = m_blseek % (MAX_SEQ_NUM + 1); // Sequence number goes to m_blseek
-  m_flseek = m_blseek; // Forward lseek goes back to m_blseek
+  m_flseek = m_blseek;                             // Forward lseek goes back to m_blseek
 }
 
 /**
@@ -231,43 +230,43 @@ bool Client::checkTimer(TimerType type, float timerLimit, int index)
   c_time start_time;
   switch (type)
   {
-    case CONNECTION_TIMER:
+  case CONNECTION_TIMER:
+  {
+    start_time = m_connectionTimer;
+    break;
+  }
+  case NORMAL_TIMER:
+  {
+    if (index == -1)
     {
-      start_time = m_connectionTimer;
-      break;
-    }
-    case NORMAL_TIMER:
-    {
-      if(index == -1)
-      {
-        std::cerr << "ERROR: Incorrect Index for Timer" << std::endl;
-        exit(1);
-      }
-      start_time = m_packetTimers[index];
-      break;
-    }
-    case SYN_PACKET_TIMER:
-    {
-      start_time = m_synPacketTimer;
-      break;
-    }
-    case FIN_PACKET_TIMER:
-    {
-      start_time = m_finPacketTimer;
-      break;
-    }
-    case FIN_END_TIMER:
-    {
-      start_time = m_finEndTimer;
-      break;
-    }
-    default:
-    {
-      std::cerr << "Incorrect Timer Type" << std::endl;
+      std::cerr << "ERROR: Incorrect Index for Timer" << std::endl;
       exit(1);
     }
+    start_time = m_packetTimers[index];
+    break;
   }
- 
+  case SYN_PACKET_TIMER:
+  {
+    start_time = m_synPacketTimer;
+    break;
+  }
+  case FIN_PACKET_TIMER:
+  {
+    start_time = m_finPacketTimer;
+    break;
+  }
+  case FIN_END_TIMER:
+  {
+    start_time = m_finEndTimer;
+    break;
+  }
+  default:
+  {
+    std::cerr << "Incorrect Timer Type" << std::endl;
+    exit(1);
+  }
+  }
+
   std::chrono::duration<double> elapsed_time = current_time - start_time;
   int elapsed_seconds = elapsed_time.count();
   return (elapsed_seconds < timerLimit); // Returns false when timer has elapsed
@@ -328,7 +327,7 @@ int Client::shiftWindow()
   int shiftedIndices = 0;
   int shiftedBytes = 0;
 
-  for (int i = 0; i < (int) m_packetBuffer.size(); i++)
+  for (int i = 0; i < (int)m_packetBuffer.size(); i++)
   {
     if (!m_packetACK[i])
       break;
@@ -336,11 +335,11 @@ int Client::shiftWindow()
     shiftedBytes += m_packetBuffer[i]->getPayloadLength();
   }
 
-  if (shiftedIndices == 0) 
+  if (shiftedIndices == 0)
     return shiftedBytes;
 
   // shift the values ahead
-  for (int i = shiftedIndices; i < (int) m_packetBuffer.size(); i++)
+  for (int i = shiftedIndices; i < (int)m_packetBuffer.size(); i++)
   {
     delete m_packetBuffer[i - shiftedIndices];
     m_packetBuffer[i - shiftedIndices] = nullptr;
@@ -391,22 +390,21 @@ int Client::markAck(TCPPacket *p)
   bool wrapAroundAck = false;
   if (
       (windowBegin <= windowEnd && windowBegin < ack && ack <= windowEnd) ||
-      (windowBegin > windowEnd && (windowBegin < ack || ack <= windowEnd))
-    )
+      (windowBegin > windowEnd && (windowBegin < ack || ack <= windowEnd)))
+  {
+    if (ack < windowBegin && ack <= windowEnd)
     {
-      if(ack < windowBegin && ack <= windowEnd)
-      {
-        wrapAroundAck = true;
-      }
+      wrapAroundAck = true;
     }
+  }
   else
   {
     return PACKET_DROPPED;
   }
-  
-  for (int i = 0; i < (int) m_packetBuffer.size(); i++)
+
+  for (int i = 0; i < (int)m_packetBuffer.size(); i++)
   {
-    if (wrapAroundAck && m_packetBuffer[i]->getSeqNum() > windowEnd) 
+    if (wrapAroundAck && m_packetBuffer[i]->getSeqNum() > windowEnd)
       m_packetACK[i] = true;
     else if (ack < m_packetBuffer[i]->getSeqNum())
       break;
@@ -414,9 +412,8 @@ int Client::markAck(TCPPacket *p)
       m_packetACK[i] = true;
   }
 
-  m_firstPacketAcked = true; 
+  m_firstPacketAcked = true;
   return PACKET_ADDED; // ACK changes were successfully added to the buffer
-
 }
 
 /**
@@ -452,7 +449,7 @@ void Client::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
 {
   std::string message;
 
-  if(recvd)
+  if (recvd)
     message = "RECV";
   else
     message = "SEND";
@@ -461,16 +458,16 @@ void Client::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
     message = "DROP";
 
   message = message + " " + std::to_string(p->getSeqNum()) + " " + std::to_string(p->getAckNum()) + " " + std::to_string(p->getConnId()) + " ";
-  if(p->isACK())
+  if (p->isACK())
     message += "ACK ";
-  if(p->isSYN())
+  if (p->isSYN())
     message += "SYN ";
-  if(p->isFIN())
+  if (p->isFIN())
     message += "FIN ";
-  if(dup && !recvd)
+  if (dup && !recvd)
     message += "DUP ";
   message.pop_back(); // remove the trailing space
-  std::cout << message << std::endl; 
+  std::cout << message << std::endl;
 }
 
 bool Client::verifySynAck(TCPPacket *synAckPacket)
@@ -515,6 +512,7 @@ void Client::handshake()
 
   // send the packet to server
   sendPacket(synPacket);
+  printPacket(synPacket, false, false, false);
   m_sequenceNumber = (m_sequenceNumber + 1) % (MAX_SEQ_NUM + 1); // as syn is 1 byte
 
   setTimer(CONNECTION_TIMER); // set the connection timer as the first packet
@@ -530,6 +528,7 @@ void Client::handshake()
     {
       // reset connection timer as packet received
       setTimer(CONNECTION_TIMER);
+      printPacket(synAckPacket, true, false, false);
       break; // received valid syn-ack packet -> now process it
     }
 
@@ -553,6 +552,7 @@ void Client::handshake()
     {
       // send packets and reset timers
       sendPacket(synPacket);
+      printPacket(synPacket, false, false, true);
       setTimer(SYN_PACKET_TIMER);
     }
   }
@@ -734,7 +734,7 @@ void Client::addToBuffers(std::vector<TCPPacket *> packets)
 void Client::sendPackets()
 {
   /* Assuming all 4 vectors are always of the same size */
-  for (int i = 0; i < (int) m_sentOnce.size(); i++)
+  for (int i = 0; i < (int)m_sentOnce.size(); i++)
   {
     // We send the packets which are marked as false in sentOnce
     if (!m_sentOnce[i])
@@ -744,7 +744,7 @@ void Client::sendPackets()
       m_packetTimers[i] = std::chrono::system_clock::now(); // start timer
 
       bool isDuplicate = isDup(m_packetBuffer[i]); // check if the packet is a duplicate packet;
-      
+
       // I have seen the largest sequence to this point
       // NOW if i send it again, THEN It's a duplicate
       if (m_largestSeqNum < m_packetBuffer[i]->getSeqNum())
@@ -837,11 +837,12 @@ void Client::setTimer(TimerType type, int index)
   }
 }
 
-bool Client::allPacketsAcked() 
+bool Client::allPacketsAcked()
 {
   for (auto i : m_packetACK)
   {
-    if (!i) return false;
+    if (!i)
+      return false;
   }
   return true;
 }
@@ -854,51 +855,51 @@ void Client::run()
 {
   using namespace std;
   handshake();
-  while(true)
+  while (true)
   {
-    // connection closing here were close due to timeout and will 
-    // not involve sending of any fin packets 
+    // connection closing here were close due to timeout and will
+    // not involve sending of any fin packets
 
     //TODO: MAKE SURE YOU UNCOMMENT THIS PLEASE PLEASE PLEASE
-    // if(checkTimerAndCloseConnection())
-    //   return;
+    if (checkTimerAndCloseConnection())
+      return;
     bool drop = checkTimersforDrop();
-    if (drop) 
+    if (drop)
     {
       m_avlblwnd = MAX_PAYLOAD_LENGTH; // reset available window to 1 packet size in case of drop
       dropPackets();
     }
-    vector<TCPPacket*> newPackets = readAndCreateTCPPackets();
+    vector<TCPPacket *> newPackets = readAndCreateTCPPackets();
 
     if ( /* m_avlblwnd == 0 && */  newPackets.empty() && m_packetBuffer.empty())
     {
-      break;  // reached end of file, nothing more to read, and nothing new to receive
+      break; // reached end of file, nothing more to read, and nothing new to receive
     }
 
     addToBuffers(newPackets);
     sendPackets();
-    
-    // recvs only 1 packet per iteration of the loop 
-    TCPPacket* p = recvPacket();
-    if (p == nullptr)  // unblocking receive call did not receive any packet in the current iteration
-      continue; // no other states will be changed
-    
+
+    // recvs only 1 packet per iteration of the loop
+    TCPPacket *p = recvPacket();
+    if (p == nullptr) // unblocking receive call did not receive any packet in the current iteration
+      continue;       // no other states will be changed
+
     setTimer(CONNECTION_TIMER); // received a message from the server, reset the connection timer
 
-    // call handle fin 
+    // call handle fin
     int packetStatus = markAck(p);
 
     bool packetDropped = packetStatus == PACKET_DROPPED;
     printPacket(p, true, packetDropped, false);
-    
+
     int shifted = shiftWindow();
     int cwndChange = congestionControl();
     m_avlblwnd = shifted + cwndChange;
-  } 
+  }
   handwave();
 }
 
-int main(int argc, char * argv[])
+int main(int argc, char *argv[])
 {
   using namespace std;
   if (argc != 4)
