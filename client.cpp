@@ -603,6 +603,7 @@ void Client::handwave()
 
   // send the packet to server
   sendPacket(finPacket);
+  printPacket(finPacket, false, false, false);
   setTimer(FIN_PACKET_TIMER); // set the fin packet timer
 
   // NOTE: We need to handle both the cases when server
@@ -624,7 +625,8 @@ void Client::handwave()
       // update seq no. and ack no.
       m_ackNumber = (ackPacket->getSeqNum() + 1) % (MAX_SEQ_NUM + 1); // +1 as ACK packet is 1 byte
       m_sequenceNumber = ackPacket->getAckNum();                      // set the sequence no. for the next ack packet to be sent by client (NOT NEEDED JUST ASSURANCE)
-      break;                                                          // received valid ack packet -> now process it
+      printPacket(ackPacket, true, false, false);
+      break; // received valid ack packet -> now process it
     }
 
     // if connection timeout -> close connection
@@ -647,6 +649,7 @@ void Client::handwave()
     {
       // send packets and reset timers
       sendPacket(finPacket);
+      printPacket(finPacket, false, false, true);
       setTimer(FIN_PACKET_TIMER);
     }
   }
@@ -675,6 +678,7 @@ void Client::handwave()
   {
     // send ack packet
     sendPacket(clientAckPacket);
+    printPacket(clientAckPacket, false, false, false);
     // NOTE: NO retransmission timers need to set
     // we only retransmit if we recieve a fin
   }
@@ -687,7 +691,9 @@ void Client::handwave()
     // if packet received and is in good form then break from loop
     if (serverFinPacket != nullptr && serverFinPacket->isFIN())
     {
+      printPacket(serverFinPacket, true, false, false);
       sendPacket(clientAckPacket);
+      printPacket(serverFinPacket, false, false, true);
       delete serverFinPacket;
       serverFinPacket = nullptr;
     }
@@ -894,6 +900,7 @@ void Client::run()
     int shifted = shiftWindow();
     int cwndChange = congestionControl();
     m_avlblwnd = shifted + cwndChange;
+    std::cout << m_avlblwnd << std::endl;
   }
   handwave();
 }
