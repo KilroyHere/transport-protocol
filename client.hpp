@@ -73,6 +73,8 @@ private:
   void printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup);
   bool verifySynAck(TCPPacket *synAckPacket); // verifies the syn-ack packet of server
   bool verifyFinAck(TCPPacket *finAckPacket); // verifies fin-ack packet of server
+
+  struct addrinfo *m_rememberToFree;
 };
 
 #endif
