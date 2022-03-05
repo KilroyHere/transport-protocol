@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include "server.hpp"
 #include "constants.hpp"
-#include "utilities.cpp"
+#include "utilities.hpp"
 #include "tcp.hpp"
 
 // SERVER IMPLEMENTATION
@@ -330,7 +330,7 @@ int Server::addNewConnection(TCPPacket *p, sockaddr *clientInfo, socklen_t clien
     // create an output file
     // TODO: assumed existance of save directory
     std::string pathName = m_folderName + "/" + std::to_string(packetConnId) + ".file";
-    int fd = open(pathName.c_str(), O_CREAT | O_WRONLY , 0644);
+    int fd = open(pathName.c_str(), O_CREAT | O_WRONLY, 0644);
 
     // set up TCB and start timer
     m_connectionIdToTCB[packetConnId] = new TCB(p->getSeqNum() + 1, fd, ConnectionState::AWAITING_ACK, true, clientInfo, clientInfoLen); // +1 in constructer as SYN == 1byte
@@ -519,13 +519,13 @@ int main(int argc, char *argv[])
     exit(1);
   }
 
-  if (!(atoi(argv[1]) && strcmp(argv[1],"0")))
+  if (!(atoi(argv[1]) && strcmp(argv[1], "0")))
   {
     cerr << "ERROR: Incorrect format of ports provided" << endl;
     exit(1); //TODO: need to change and implement the exact exit functions with different exit codes.
   }
 
-  if(atoi(argv[1]) > 65535 || atoi(argv[1]) < 0 )
+  if (atoi(argv[1]) > 65535 || atoi(argv[1]) < 0)
   {
     cerr << "ERROR: Port invalid" << endl;
     exit(1);
