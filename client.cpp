@@ -55,11 +55,11 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   }
   m_sockFd = sockfd;
   // non blocking receiving
-  // if (fcntl(sockfd, F_SETFL, O_NONBLOCK) == -1)
-  // {
-  //   cerr << "ERROR: in fcntl " << strerror(errno) << endl;
-  //   exit(1);
-  // }
+  if (fcntl(sockfd, F_SETFL, O_NONBLOCK) == -1)
+  {
+    cerr << "ERROR: in fcntl " << strerror(errno) << endl;
+    exit(1);
+  }
 
   if (p == NULL)
   {
@@ -74,7 +74,7 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   m_fileFd = open(fileName.c_str(), O_RDONLY);
   if (m_fileFd == -1)
   {
-    cerr << "ERROR: Unable to open file: " << fileName << ". "<< strerror(errno) << endl;
+    cerr << "ERROR: Unable to open file " << strerror(errno) << endl;
     exit(1);
   }
 }
@@ -182,26 +182,20 @@ bool Client::checkTimersforDrop()
  */
 void Client::dropPackets()
 {
-  while(!m_packetBuffer.empty()) //Deletes all TCPPackets from the buffer
+  TCPPacket *packet;
+  while (!m_packetBuffer.empty()) //Deletes all TCPPackets from the buffer
   {
-    TCPPacket *packet;
     packet = m_packetBuffer.back();
     m_packetBuffer.pop_back();
-    // delete packet;
+    delete packet;
   }
   m_ssthresh = m_cwnd / 2;
   m_cwnd = MAX_PAYLOAD_LENGTH;
   m_avlblwnd = m_cwnd;
   m_packetTimers.clear();
   m_packetACK.clear();
-<<<<<<< HEAD
   m_sequenceNumber = m_relSeqNum; // Sequence number goes to m_blseek
   m_flseek = m_blseek;            // Forward lseek goes back to m_blseek
-=======
-  m_sentOnce.clear();
-  m_sequenceNumber = m_relSeqNum; // Sequence number goes to m_blseek
-  m_flseek = m_blseek;                             // Forward lseek goes back to m_blseek
->>>>>>> origin/abhishek/client
 }
 
 /**
@@ -344,11 +338,7 @@ int Client::shiftWindow()
     return shiftedBytes;
 
   // shift the values ahead
-<<<<<<< HEAD
   for (int i = 0; i < shiftedIndices; i++)
-=======
-  for (int i=0; i < shiftedIndices; i++)
->>>>>>> origin/abhishek/client
   {
     delete m_packetBuffer[0];
     m_packetBuffer.erase(m_packetBuffer.begin());
@@ -383,10 +373,6 @@ int Client::markAck(TCPPacket *p)
   int windowBegin = m_packetBuffer[0]->getSeqNum();
   int windowEnd = m_packetBuffer[m_packetBuffer.size() - 1]->getSeqNum();
   windowEnd += m_packetBuffer[m_packetBuffer.size() - 1]->getPayloadLength();
-<<<<<<< HEAD
-=======
-  // windowEnd += 1; // ACK num can be 1 more than the last byte of the current packet
->>>>>>> origin/abhishek/client
   windowEnd %= MAX_SEQ_NUM + 1;
 
   bool wrapAroundAck = false;
@@ -561,7 +547,6 @@ void Client::handshake()
   /* 
     if we reach here then this means that client has received
     the syn ack packet in valid form
-
     this implies that the work of handshake is done and now the 
     first packet can be sent with payload.
   */
@@ -740,7 +725,7 @@ void Client::addToBuffers(std::vector<TCPPacket *> packets)
  * 
  * The function then determines if a packet is a dup or not
  */
-void Client::sendPackets()
+int Client::sendPackets()
 {
   int count = 0;
   /* Assuming all 4 vectors are always of the same size */
@@ -768,6 +753,8 @@ void Client::sendPackets()
       printPacket(m_packetBuffer[i], false, false, isDuplicate);
     }
   }
+
+  return count;
 }
 
 /**
@@ -879,7 +866,6 @@ void Client::run()
     //TODO: MAKE SURE YOU UNCOMMENT THIS PLEASE PLEASE PLEASE
     if (checkTimerAndCloseConnection())
       return;
-<<<<<<< HEAD
     // bool drop = checkTimersforDrop();
     // if (drop)
     // {
@@ -888,22 +874,12 @@ void Client::run()
     // }
     vector<TCPPacket *> newPackets = readAndCreateTCPPackets();
     if (newPackets.size() == 0 && allPacketsAcked())
-=======
-    bool drop = checkTimersforDrop();
-    // if (drop)
-    // {
-    //   dropPackets();
-    // }
-    vector<TCPPacket *> newPackets = readAndCreateTCPPackets();
-
-    if ( /* m_avlblwnd == 0 && */  newPackets.empty() && m_packetBuffer.empty())
->>>>>>> origin/abhishek/client
     {
       break; // reached end of file, nothing more to read, and nothing new to receive
     }
 
     addToBuffers(newPackets);
-    sendPackets();
+    int packetsSent = sendPackets();
     m_avlblwnd = 0;
     // recvs only 1 packet per iteration of the loop
     TCPPacket *p;
@@ -918,19 +894,11 @@ void Client::run()
       bool packetDropped = packetStatus == PACKET_DROPPED;
       printPacket(p, true, packetDropped, false);
 
-<<<<<<< HEAD
       int shifted = shiftWindow();
       int cwndChange = congestionControl();
       m_avlblwnd = shifted + cwndChange;
       p = nullptr;
     }
-=======
-    int shifted = shiftWindow();
-    int cwndChange = congestionControl();
-    if (packetDropped)
-      cwndChange = 0;
-    m_avlblwnd = shifted + cwndChange;
->>>>>>> origin/abhishek/client
   }
   handwave();
 }

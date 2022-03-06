@@ -17,18 +17,18 @@ public:
   ~Client();
   void run(); // lol
   void handleConnection();
-  bool checkTimerAndCloseConnection(); // Returns true if connection closed
-  bool checkTimersforDrop(); //Return true if packets are to be dropped
-  void dropPackets(); // also works with lseek
-  void addToBuffers(std::vector<TCPPacket*> packets); // add the new packets to the buffers
-  void sendPackets(); // send the packets ONLY THAT HAVE NOT BEEN SENT BEFORE
-  TCPPacket* recvPacket();
-  std::vector<TCPPacket*> readAndCreateTCPPackets();// -> return vector<TCPPacket*> of the new packets created
+  bool checkTimerAndCloseConnection();                 // Returns true if connection closed
+  bool checkTimersforDrop();                           //Return true if packets are to be dropped
+  void dropPackets();                                  // also works with lseek
+  void addToBuffers(std::vector<TCPPacket *> packets); // add the new packets to the buffers
+  int sendPackets();                                   // send the packets ONLY THAT HAVE NOT BEEN SENT BEFORE
+  TCPPacket *recvPacket();
+  std::vector<TCPPacket *> readAndCreateTCPPackets(); // -> return vector<TCPPacket*> of the new packets created
   // potential sub function: createTCPPackets(vector<char> &, int startIndex, int endIndex) that creates TCP Packets from the byte buffer
   //unlike in the server, since there is only one connection at a given time, we can ensure that each function has complete autonomy over the that connection state
-  TCPPacket* createTCPPacket(char* buffer,int length);  
-  void handshake();  // hi!
-  void handwave();   // bye!
+  TCPPacket *createTCPPacket(char *buffer, int length);
+  void handshake(); // hi!
+  void handwave();  // bye!
   void setTimer(TimerType type, int index = -1);
   bool checkTimer(TimerType type, float timerLimit, int index = -1);
   // potential sub function: createTCPPackets(vector<char> &, int startIndex, int endIndex) that creates TCP Packets from the byte buffer
@@ -59,10 +59,10 @@ private:
   c_time m_finPacketTimer;
   c_time m_finEndTimer;
   struct addrinfo m_serverInfo; // needed since we use sendto() and might have to provide server info each time
-  bool m_fileRead; // file has been completely read and the winodw can't move any forward; can be a local variable in handleConnection() also
+  bool m_fileRead;              // file has been completely read and the winodw can't move any forward; can be a local variable in handleConnection() also
 
   bool m_firstPacketAcked; //Set in Constructor as false, update when first packet acked
-  std::vector<TCPPacket*> m_packetBuffer;
+  std::vector<TCPPacket *> m_packetBuffer;
   std::vector<bool> m_packetACK;
   std::vector<c_time> m_packetTimers;
   std::vector<bool> m_sentOnce;
