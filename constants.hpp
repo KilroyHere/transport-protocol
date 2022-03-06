@@ -42,8 +42,9 @@ const int MAX_SEQ_NUM = 102400;
 const int MAX_ACK_NUM = 102400;
 const int HEADER_LEN = 12;
 const int INIT_CWND_BYTES = 512;
-const float CONNECTION_TIMEOUT = 10; //seconds
-const float RETRANSMISSION_TIMEOUT = 0.5;
+//TODO: PLEASE please PLEAse change the following back to what it was 
+const float CONNECTION_TIMEOUT = 1000; //seconds
+const float RETRANSMISSION_TIMEOUT = 100;   // 0.5;
 const float CLIENT_CONNECTION_END_TIMEOUT = 2;
 const int INITIAL_SSTHRESH = 10000;
 

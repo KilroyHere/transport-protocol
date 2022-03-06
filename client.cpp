@@ -27,7 +27,7 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   m_blseek = 0;
   m_flseek = 0;
   m_largestSeqNum = 0;
-  m_relSeqNum = 0;
+  m_relSeqNum = INIT_CLIENT_SEQ_NUM;
   m_cwnd = INIT_CWND_BYTES;
   m_avlblwnd = m_cwnd;
   m_ssthresh = INITIAL_SSTHRESH;
@@ -55,11 +55,11 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   }
   m_sockFd = sockfd;
   // non blocking receiving
-  if (fcntl(sockfd, F_SETFL, O_NONBLOCK) == -1)
-  {
-    cerr << "ERROR: in fcntl " << strerror(errno) << endl;
-    exit(1);
-  }
+  // if (fcntl(sockfd, F_SETFL, O_NONBLOCK) == -1)
+  // {
+  //   cerr << "ERROR: in fcntl " << strerror(errno) << endl;
+  //   exit(1);
+  // }
 
   if (p == NULL)
   {
@@ -195,7 +195,7 @@ void Client::dropPackets()
   m_packetTimers.clear();
   m_packetACK.clear();
   m_sentOnce.clear();
-  m_sequenceNumber = m_blseek % (MAX_SEQ_NUM + 1); // Sequence number goes to m_blseek
+  m_sequenceNumber = m_relSeqNum; // Sequence number goes to m_blseek
   m_flseek = m_blseek;                             // Forward lseek goes back to m_blseek
 }
 
@@ -308,7 +308,7 @@ int Client::congestionControl()
   else
   {
     // integer division is the same as floor division for positive values
-    newCwnd = (MAX_PAYLOAD_LENGTH * MAX_PAYLOAD_LENGTH) / m_cwnd;
+    newCwnd += (MAX_PAYLOAD_LENGTH * MAX_PAYLOAD_LENGTH) / m_cwnd;
   }
   int diff = newCwnd - m_cwnd;
   m_cwnd = newCwnd;
@@ -339,23 +339,13 @@ int Client::shiftWindow()
     return shiftedBytes;
 
   // shift the values ahead
-  for (int i = shiftedIndices; i < (int)m_packetBuffer.size(); i++)
+  for (int i=0; i < shiftedIndices; i++)
   {
-    delete m_packetBuffer[i - shiftedIndices];
-    m_packetBuffer[i - shiftedIndices] = nullptr;
-    m_packetBuffer[i - shiftedIndices] = m_packetBuffer[i];
-    m_packetACK[i - shiftedIndices] = m_packetACK[i];
-    m_packetTimers[i - shiftedIndices] = m_packetTimers[i];
-    m_sentOnce[i - shiftedIndices] = m_sentOnce[i];
-  }
-
-  // pop the values at the end
-  for (int i = 0; i < shiftedIndices; i++)
-  {
-    m_packetBuffer.pop_back();
-    m_packetACK.pop_back();
-    m_packetTimers.pop_back();
-    m_sentOnce.pop_back();
+    delete m_packetBuffer[0];
+    m_packetBuffer.erase(m_packetBuffer.begin());
+    m_packetACK.erase(m_packetACK.begin());
+    m_packetTimers.erase(m_packetTimers.begin());
+    m_sentOnce.erase(m_sentOnce.begin());
   }
 
   m_blseek += shiftedBytes;
@@ -384,7 +374,7 @@ int Client::markAck(TCPPacket *p)
   int windowBegin = m_packetBuffer[0]->getSeqNum();
   int windowEnd = m_packetBuffer[m_packetBuffer.size() - 1]->getSeqNum();
   windowEnd += m_packetBuffer[m_packetBuffer.size() - 1]->getPayloadLength();
-  windowEnd += 1; // ACK num can be 1 more than the last byte of the current packet
+  // windowEnd += 1; // ACK num can be 1 more than the last byte of the current packet
   windowEnd %= MAX_SEQ_NUM + 1;
 
   bool wrapAroundAck = false;
@@ -406,7 +396,7 @@ int Client::markAck(TCPPacket *p)
   {
     if (wrapAroundAck && m_packetBuffer[i]->getSeqNum() > windowEnd)
       m_packetACK[i] = true;
-    else if (ack < m_packetBuffer[i]->getSeqNum())
+    else if (ack <= m_packetBuffer[i]->getSeqNum())
       break;
     else
       m_packetACK[i] = true;
@@ -864,11 +854,10 @@ void Client::run()
     if (checkTimerAndCloseConnection())
       return;
     bool drop = checkTimersforDrop();
-    if (drop)
-    {
-      m_avlblwnd = MAX_PAYLOAD_LENGTH; // reset available window to 1 packet size in case of drop
-      dropPackets();
-    }
+    // if (drop)
+    // {
+    //   dropPackets();
+    // }
     vector<TCPPacket *> newPackets = readAndCreateTCPPackets();
 
     if ( /* m_avlblwnd == 0 && */  newPackets.empty() && m_packetBuffer.empty())
@@ -894,6 +883,8 @@ void Client::run()
 
     int shifted = shiftWindow();
     int cwndChange = congestionControl();
+    if (packetDropped)
+      cwndChange = 0;
     m_avlblwnd = shifted + cwndChange;
   }
   handwave();
