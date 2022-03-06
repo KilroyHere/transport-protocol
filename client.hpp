@@ -47,9 +47,9 @@ private:
   int m_sockFd;
   int m_connectionId;
   int m_sequenceNumber;
-  int m_largestSeqNum;
-  int m_relSeqNum;
-  int m_ackNumber;
+  int m_largestSeqNum;      // sequence number of the largest packet sent
+  int m_relSeqNum;          // next expected sequence number to be ACKed
+  int m_ackNumber;        
   int m_cwnd;
   int m_ssthresh;
   int m_avlblwnd;

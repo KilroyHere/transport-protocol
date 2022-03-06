@@ -26,7 +26,7 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
 
   m_blseek = 0;
   m_flseek = 0;
-  m_largestSeqNum = 0;
+  m_largestSeqNum = INIT_CLIENT_SEQ_NUM;
   m_relSeqNum = INIT_CLIENT_SEQ_NUM;
   m_cwnd = INIT_CWND_BYTES;
   m_avlblwnd = m_cwnd;
@@ -346,9 +346,8 @@ int Client::shiftWindow()
     m_packetTimers.erase(m_packetTimers.begin());
     m_sentOnce.erase(m_sentOnce.begin());
   }
-
   m_blseek += shiftedBytes;
-  m_relSeqNum += shiftedBytes + 1;
+  m_relSeqNum += shiftedBytes;
   m_relSeqNum %= MAX_SEQ_NUM + 1;
 
   return shiftedBytes;
@@ -370,25 +369,28 @@ int Client::markAck(TCPPacket *p)
   if (m_packetBuffer.empty())
     return PACKET_DROPPED;
 
-  int windowBegin = m_packetBuffer[0]->getSeqNum();
-  int windowEnd = m_packetBuffer[m_packetBuffer.size() - 1]->getSeqNum();
-  windowEnd += m_packetBuffer[m_packetBuffer.size() - 1]->getPayloadLength();
-  windowEnd %= MAX_SEQ_NUM + 1;
-
   bool wrapAroundAck = false;
-  if (
-      (windowBegin <= windowEnd && windowBegin < ack && ack <= windowEnd) ||
-      (windowBegin > windowEnd && (windowBegin < ack || ack <= windowEnd)))
+  bool validAck = false; 
+  if (m_largestSeqNum == m_relSeqNum)
   {
-    if (ack < windowBegin && ack <= windowEnd)
-    {
+    std::cerr << "LargestSeq == relSeqNum, should not have happened" << std::endl;
+    validAck = false;
+  }
+  else if (m_largestSeqNum < m_relSeqNum)
+  {
+    if (ack <= m_largestSeqNum && ack < m_relSeqNum)
       wrapAroundAck = true;
-    }
+    validAck = (ack <= m_largestSeqNum) || (ack > m_relSeqNum);
   }
   else
   {
-    return PACKET_DROPPED;
+    validAck = (m_relSeqNum < ack) && (ack <= m_largestSeqNum);
   }
+
+  if (!validAck)
+    return PACKET_DROPPED;
+
+  int windowEnd = m_packetBuffer.back()->getSeqNum();
 
   for (int i = 0; i < (int)m_packetBuffer.size(); i++)
   {
@@ -499,7 +501,7 @@ void Client::handshake()
   // send the packet to server
   sendPacket(synPacket);
   printPacket(synPacket, false, false, false);
-  m_largestSeqNum = (m_sequenceNumber + synPacket->getPayloadLength() + 1) % (MAX_SEQ_NUM + 1);
+  m_largestSeqNum = (m_sequenceNumber + 1) % (MAX_SEQ_NUM + 1);
   m_sequenceNumber = (m_sequenceNumber + 1) % (MAX_SEQ_NUM + 1); // as syn is 1 byte
 
   setTimer(CONNECTION_TIMER); // set the connection timer as the first packet
@@ -554,7 +556,7 @@ void Client::handshake()
   // set connection Id and ack no.
   m_ackNumber = (synAckPacket->getSeqNum() + 1) % (MAX_SEQ_NUM + 1); // +1 as SYN-ACK packet is 1 byte
   m_connectionId = synAckPacket->getConnId();
-
+  m_relSeqNum = synAckPacket->getAckNum();
   // delete syn and syn-ack packets
   delete synPacket;
   synPacket = nullptr;
@@ -740,16 +742,17 @@ int Client::sendPackets()
       m_packetTimers[i] = std::chrono::system_clock::now(); // start timer
 
       bool isDuplicate = isDup(m_packetBuffer[i]); // check if the packet is a duplicate packet;
-      if (isDuplicate)
-      {
-        std::cout << m_relSeqNum << std::endl;
-        std::cout << m_largestSeqNum << std::endl;
-        std::cout << m_packetBuffer[i]->getSeqNum() << std::endl;
-      }
       // I have seen the largest sequence to this point
       // NOW if i send it again, THEN It's a duplicate
-      if (m_largestSeqNum < m_packetBuffer[i]->getSeqNum())
-        m_largestSeqNum = m_packetBuffer[i]->getSeqNum();
+      // if (m_largestSeqNum <= m_packetBuffer[i]->getSeqNum())
+
+      // if (
+      //     (m_relSeqNum == m_largestSeqNum) ||
+      //     (m_relSeqNum < m_largestSeqNum && (m_largestSeqNum <= seqNum || seqNum < m_relSeqNum) ) ||
+      //     (m_largestSeqNum < m_relSeqNum && m_largestSeqNum <= seqNum && seqNum < m_relSeqNum) 
+      // )
+      if (!isDuplicate)
+        m_largestSeqNum = (m_packetBuffer[i]->getSeqNum() + m_packetBuffer[i]->getPayloadLength()) % (MAX_SEQ_NUM + 1) ; 
       printPacket(m_packetBuffer[i], false, false, isDuplicate);
     }
   }
@@ -765,14 +768,17 @@ int Client::sendPackets()
 bool Client::isDup(TCPPacket *p)
 {
   int seqNum = p->getSeqNum();
-  if (m_largestSeqNum < m_relSeqNum)
+  if (m_largestSeqNum == m_relSeqNum)
   {
-    return (seqNum <= m_largestSeqNum) || (seqNum > m_relSeqNum);
+    return false;
   }
-
+  else if (m_largestSeqNum < m_relSeqNum)
+  {
+    return (seqNum < m_largestSeqNum) || (seqNum >= m_relSeqNum);
+  }
   else
   {
-    return (m_relSeqNum < seqNum) && (seqNum <= m_largestSeqNum);
+    return (m_relSeqNum <= seqNum) && (seqNum < m_largestSeqNum);
   }
 }
 
@@ -866,12 +872,12 @@ void Client::run()
     //TODO: MAKE SURE YOU UNCOMMENT THIS PLEASE PLEASE PLEASE
     if (checkTimerAndCloseConnection())
       return;
-    // bool drop = checkTimersforDrop();
-    // if (drop)
-    // {
-    //   m_avlblwnd = MAX_PAYLOAD_LENGTH; // reset available window to 1 packet size in case of drop
-    //   dropPackets();
-    // }
+    bool drop = checkTimersforDrop();
+    if (drop)
+    {
+      m_avlblwnd = MAX_PAYLOAD_LENGTH; // reset available window to 1 packet size in case of drop
+      dropPackets();
+    }
     vector<TCPPacket *> newPackets = readAndCreateTCPPackets();
     if (newPackets.size() == 0 && allPacketsAcked())
     {
