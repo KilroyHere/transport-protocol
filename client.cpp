@@ -27,7 +27,7 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   m_blseek = 0;
   m_flseek = 0;
   m_largestSeqNum = 0;
-  m_relSeqNum = 0;
+  m_relSeqNum = INIT_CLIENT_SEQ_NUM;
   m_cwnd = INIT_CWND_BYTES;
   m_avlblwnd = m_cwnd;
   m_ssthresh = INITIAL_SSTHRESH;
@@ -194,8 +194,8 @@ void Client::dropPackets()
   m_avlblwnd = m_cwnd;
   m_packetTimers.clear();
   m_packetACK.clear();
-  m_sequenceNumber = m_blseek % (MAX_SEQ_NUM + 1); // Sequence number goes to m_blseek
-  m_flseek = m_blseek;                             // Forward lseek goes back to m_blseek
+  m_sequenceNumber = m_relSeqNum; // Sequence number goes to m_blseek
+  m_flseek = m_blseek;            // Forward lseek goes back to m_blseek
 }
 
 /**
@@ -267,7 +267,7 @@ bool Client::checkTimer(TimerType type, float timerLimit, int index)
   }
 
   std::chrono::duration<double> elapsed_time = current_time - start_time;
-  int elapsed_seconds = elapsed_time.count();
+  double elapsed_seconds = elapsed_time.count();
   return (elapsed_seconds < timerLimit); // Returns false when timer has elapsed
 }
 
@@ -307,7 +307,7 @@ int Client::congestionControl()
   else
   {
     // integer division is the same as floor division for positive values
-    newCwnd = (MAX_PAYLOAD_LENGTH * MAX_PAYLOAD_LENGTH) / m_cwnd;
+    newCwnd += (MAX_PAYLOAD_LENGTH * MAX_PAYLOAD_LENGTH) / m_cwnd;
   }
   int diff = newCwnd - m_cwnd;
   m_cwnd = newCwnd;
@@ -338,27 +338,17 @@ int Client::shiftWindow()
     return shiftedBytes;
 
   // shift the values ahead
-  for (int i = shiftedIndices; i < (int)m_packetBuffer.size(); i++)
-  {
-    delete m_packetBuffer[i - shiftedIndices];
-    m_packetBuffer[i - shiftedIndices] = nullptr;
-    m_packetBuffer[i - shiftedIndices] = m_packetBuffer[i];
-    m_packetACK[i - shiftedIndices] = m_packetACK[i];
-    m_packetTimers[i - shiftedIndices] = m_packetTimers[i];
-    m_sentOnce[i - shiftedIndices] = m_sentOnce[i];
-  }
-
-  // pop the values at the end
   for (int i = 0; i < shiftedIndices; i++)
   {
-    m_packetBuffer.pop_back();
-    m_packetACK.pop_back();
-    m_packetTimers.pop_back();
-    m_sentOnce.pop_back();
+    delete m_packetBuffer[0];
+    m_packetBuffer.erase(m_packetBuffer.begin());
+    m_packetACK.erase(m_packetACK.begin());
+    m_packetTimers.erase(m_packetTimers.begin());
+    m_sentOnce.erase(m_sentOnce.begin());
   }
 
   m_blseek += shiftedBytes;
-  m_relSeqNum += shiftedBytes;
+  m_relSeqNum += shiftedBytes + 1;
   m_relSeqNum %= MAX_SEQ_NUM + 1;
 
   return shiftedBytes;
@@ -383,7 +373,6 @@ int Client::markAck(TCPPacket *p)
   int windowBegin = m_packetBuffer[0]->getSeqNum();
   int windowEnd = m_packetBuffer[m_packetBuffer.size() - 1]->getSeqNum();
   windowEnd += m_packetBuffer[m_packetBuffer.size() - 1]->getPayloadLength();
-  windowEnd += 1; // ACK num can be 1 more than the last byte of the current packet
   windowEnd %= MAX_SEQ_NUM + 1;
 
   bool wrapAroundAck = false;
@@ -405,7 +394,7 @@ int Client::markAck(TCPPacket *p)
   {
     if (wrapAroundAck && m_packetBuffer[i]->getSeqNum() > windowEnd)
       m_packetACK[i] = true;
-    else if (ack < m_packetBuffer[i]->getSeqNum())
+    else if (ack <= m_packetBuffer[i]->getSeqNum())
       break;
     else
       m_packetACK[i] = true;
@@ -424,9 +413,7 @@ int Client::markAck(TCPPacket *p)
 TCPPacket *Client::recvPacket()
 {
   char buffer[MAX_PACKET_LENGTH];
-
   int bytes = recvfrom(m_sockFd, buffer, MAX_PACKET_LENGTH, 0, NULL, 0); // Already have the address info of the server
-
   // nothing was available to read at the socket, so no new packet arrived
   if (bytes == -1)
     return nullptr;
@@ -512,6 +499,7 @@ void Client::handshake()
   // send the packet to server
   sendPacket(synPacket);
   printPacket(synPacket, false, false, false);
+  m_largestSeqNum = (m_sequenceNumber + synPacket->getPayloadLength() + 1) % (MAX_SEQ_NUM + 1);
   m_sequenceNumber = (m_sequenceNumber + 1) % (MAX_SEQ_NUM + 1); // as syn is 1 byte
 
   setTimer(CONNECTION_TIMER); // set the connection timer as the first packet
@@ -684,8 +672,10 @@ void Client::handwave()
   }
 
   TCPPacket *serverFinPacket;
-  while (checkTimer(FIN_END_TIMER, CLIENT_CONNECTION_END_TIMEOUT))
+  while (true)
   {
+    if (!checkTimer(FIN_END_TIMER, CLIENT_CONNECTION_END_TIMEOUT))
+      break;
     serverFinPacket = recvPacket(); // recv the fin packet
 
     // if packet received and is in good form then break from loop
@@ -736,20 +726,27 @@ void Client::addToBuffers(std::vector<TCPPacket *> packets)
  * 
  * The function then determines if a packet is a dup or not
  */
-void Client::sendPackets()
+int Client::sendPackets()
 {
+  int count = 0;
   /* Assuming all 4 vectors are always of the same size */
   for (int i = 0; i < (int)m_sentOnce.size(); i++)
   {
     // We send the packets which are marked as false in sentOnce
     if (!m_sentOnce[i])
     {
-      sendPacket(m_packetBuffer[i]);                        // send packets
+      sendPacket(m_packetBuffer[i]);
+      count++;                                              // send packets
       m_sentOnce[i] = true;                                 // set sentOnce to true
       m_packetTimers[i] = std::chrono::system_clock::now(); // start timer
 
       bool isDuplicate = isDup(m_packetBuffer[i]); // check if the packet is a duplicate packet;
-
+      if (isDuplicate)
+      {
+        std::cout << m_relSeqNum << std::endl;
+        std::cout << m_largestSeqNum << std::endl;
+        std::cout << m_packetBuffer[i]->getSeqNum() << std::endl;
+      }
       // I have seen the largest sequence to this point
       // NOW if i send it again, THEN It's a duplicate
       if (m_largestSeqNum < m_packetBuffer[i]->getSeqNum())
@@ -757,6 +754,8 @@ void Client::sendPackets()
       printPacket(m_packetBuffer[i], false, false, isDuplicate);
     }
   }
+
+  return count;
 }
 
 /**
@@ -868,39 +867,39 @@ void Client::run()
     //TODO: MAKE SURE YOU UNCOMMENT THIS PLEASE PLEASE PLEASE
     if (checkTimerAndCloseConnection())
       return;
-    bool drop = checkTimersforDrop();
-    if (drop)
-    {
-      m_avlblwnd = MAX_PAYLOAD_LENGTH; // reset available window to 1 packet size in case of drop
-      dropPackets();
-    }
+    // bool drop = checkTimersforDrop();
+    // if (drop)
+    // {
+    //   m_avlblwnd = MAX_PAYLOAD_LENGTH; // reset available window to 1 packet size in case of drop
+    //   dropPackets();
+    // }
     vector<TCPPacket *> newPackets = readAndCreateTCPPackets();
-
-    if (m_avlblwnd == 0 && newPackets.size() == 0 && allPacketsAcked())
+    if (newPackets.size() == 0 && allPacketsAcked())
     {
       break; // reached end of file, nothing more to read, and nothing new to receive
     }
 
     addToBuffers(newPackets);
-    sendPackets();
-
+    int packetsSent = sendPackets();
+    m_avlblwnd = 0;
     // recvs only 1 packet per iteration of the loop
-    TCPPacket *p = recvPacket();
-    if (p == nullptr) // unblocking receive call did not receive any packet in the current iteration
-      continue;       // no other states will be changed
+    TCPPacket *p;
+    int i = 0;
+    while ((p = recvPacket()) != nullptr)
+    {
+      setTimer(CONNECTION_TIMER); // received a message from the server, reset the connection timer
 
-    setTimer(CONNECTION_TIMER); // received a message from the server, reset the connection timer
+      // call handle fin
+      int packetStatus = markAck(p);
 
-    // call handle fin
-    int packetStatus = markAck(p);
+      bool packetDropped = packetStatus == PACKET_DROPPED;
+      printPacket(p, true, packetDropped, false);
 
-    bool packetDropped = packetStatus == PACKET_DROPPED;
-    printPacket(p, true, packetDropped, false);
-
-    int shifted = shiftWindow();
-    int cwndChange = congestionControl();
-    m_avlblwnd = shifted + cwndChange;
-    std::cout << m_avlblwnd << std::endl;
+      int shifted = shiftWindow();
+      int cwndChange = congestionControl();
+      m_avlblwnd = shifted + cwndChange;
+      p = nullptr;
+    }
   }
   handwave();
 }
