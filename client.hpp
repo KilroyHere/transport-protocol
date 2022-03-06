@@ -33,7 +33,7 @@ public:
   bool checkTimer(TimerType type, float timerLimit, int index = -1);
   // potential sub function: createTCPPackets(vector<char> &, int startIndex, int endIndex) that creates TCP Packets from the byte buffer
   //unlike in the server, since there is only one connection at a given time, we can ensure that each function has complete autonomy over the that connection state
-  void closeConnection(); // should handle both cases where server or client needs to do FIN
+  void closeConnection(int exitCode=0); // should handle both cases where server or client needs to do FIN
   // close connection should not be called by client until all packets are not ack'ed
   int congestionControl(); // change by 1 ACK, return the amount the CWND shifted
   int shiftWindow(TCPPacket *p);       // returns the number of bytes that the window has shifted

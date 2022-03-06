@@ -23,6 +23,8 @@ Client::Client(std::string hostname, std::string port, std::string fileName)
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET; // set to AF_INET to use IPv4
   hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags = AI_PASSIVE;
+  hints.ai_protocol = IPPROTO_UDP;
 
   m_blseek = 0;
   m_flseek = 0;
@@ -209,7 +211,7 @@ bool Client::checkTimerAndCloseConnection()
 {
   if (!checkTimer(CONNECTION_TIMER, CONNECTION_TIMEOUT))
   {
-    closeConnection();
+    closeConnection(1);
     return true;
   }
   return false;
@@ -276,10 +278,12 @@ bool Client::checkTimer(TimerType type, float timerLimit, int index)
  * @brief Close Connection
  * 
  */
-void Client::closeConnection()
+void Client::closeConnection(int exitCode)
 {
   close(m_sockFd);
   close(m_fileFd);
+  if(exitCode != 0 )
+    exit(exitCode);
   return;
 }
 
@@ -566,7 +570,7 @@ void Client::handshake()
       delete synAckPacket;
       synAckPacket = nullptr;
 
-      closeConnection();
+      closeConnection(1);
       return;
     }
 
@@ -637,7 +641,7 @@ void Client::handwave()
     ackPacket = recvPacket(); // recv the ack/fin-ack packet
 
     // if packet received and is in good form then break from loop
-    if (ackPacket != nullptr && verifyFinAck(ackPacket))
+    if (ackPacket != nullptr && ackPacket->isFIN())
     {
       // reset connection timer as packet received
       setTimer(CONNECTION_TIMER);
@@ -663,7 +667,7 @@ void Client::handwave()
       delete ackPacket;
       ackPacket = nullptr;
 
-      closeConnection();
+      closeConnection(1);
       return;
     }
 
@@ -718,7 +722,7 @@ void Client::handwave()
     {
       printPacket(serverFinPacket, true, false, false);
       sendPacket(clientAckPacket);
-      printPacket(serverFinPacket, false, false, true);
+      printPacket(clientAckPacket, false, false, true);
       delete serverFinPacket;
       serverFinPacket = nullptr;
     }
@@ -951,14 +955,19 @@ int main(int argc, char *argv[])
   using namespace std;
   if (argc != 4)
   {
-    cout << "ERROR: Incorrect number of arguments provided!" << endl;
+    cerr << "ERROR: Incorrect number of arguments provided!" << endl;
     exit(1);
   }
 
   if (!(atoi(argv[2])))
   {
-    cout << "ERROR: Incorrect format of ports provided" << endl;
+    cerr << "ERROR: Incorrect format of ports provided" << endl;
     exit(1); //TODO: need to change and implement the exact exit functions with different exit codes.
+  }
+  int port = atoi(argv[2]);
+  if (port < 0 || port > 65535)
+  {
+    cerr << "ERROR: Incorrect port number provided" << endl;
   }
 
   Client client(argv[1], argv[2], argv[3]);
