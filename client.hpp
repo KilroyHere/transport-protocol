@@ -36,7 +36,7 @@ public:
   void closeConnection(); // should handle both cases where server or client needs to do FIN
   // close connection should not be called by client until all packets are not ack'ed
   int congestionControl(); // change by 1 ACK, return the amount the CWND shifted
-  int shiftWindow();       // returns the number of bytes that the window has shifted
+  int shiftWindow(TCPPacket *p);       // returns the number of bytes that the window has shifted
   int markAck(TCPPacket *p);
   int sendPacket(TCPPacket *p);
   bool isDup(TCPPacket *p);

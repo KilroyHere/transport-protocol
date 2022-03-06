@@ -192,6 +192,7 @@ void Client::dropPackets()
   m_ssthresh = m_cwnd / 2;
   m_cwnd = MAX_PAYLOAD_LENGTH;
   m_avlblwnd = m_cwnd;
+  m_sentOnce.clear();
   m_packetTimers.clear();
   m_packetACK.clear();
   m_sequenceNumber = m_relSeqNum; // Sequence number goes to m_blseek
@@ -307,9 +308,9 @@ int Client::congestionControl()
   else
   {
     // integer division is the same as floor division for positive values
-    newCwnd += (MAX_PAYLOAD_LENGTH * MAX_PAYLOAD_LENGTH) / m_cwnd;
+    newCwnd += (MAX_PAYLOAD_LENGTH * MAX_PAYLOAD_LENGTH) / (m_cwnd - (m_cwnd % MAX_PAYLOAD_LENGTH));
   }
-  int diff = newCwnd - m_cwnd;
+  int diff = ((newCwnd - m_cwnd) / MAX_PAYLOAD_LENGTH) * MAX_PAYLOAD_LENGTH;
   m_cwnd = newCwnd;
   return diff;
 }
@@ -321,7 +322,7 @@ int Client::congestionControl()
  *
  * @return Number of payload bytes that have been shifted forward
  */
-int Client::shiftWindow()
+int Client::shiftWindow(TCPPacket* p)
 {
   int shiftedIndices = 0;
   int shiftedBytes = 0;
@@ -346,9 +347,38 @@ int Client::shiftWindow()
     m_packetTimers.erase(m_packetTimers.begin());
     m_sentOnce.erase(m_sentOnce.begin());
   }
-  m_blseek += shiftedBytes;
-  m_relSeqNum += shiftedBytes;
-  m_relSeqNum %= MAX_SEQ_NUM + 1;
+
+  // the buffer was empty, the ack may have been further
+  // see if we have to skip ahead
+  // if (m_packetBuffer.empty()) 
+  // {
+  //   // if m_relSeqNum == m_largestSeqNum
+  //   // then the ack would have been dropped
+  //   // and we would never have come here
+  //   int ack = p->getAckNum()
+  //   if (m_relSeqNum < m_largestSeqNum)
+  //   {
+  //     m_blseek += ack - m_relSeqNum;
+  //   }
+  //   else if (m_largestSeqNum < m_relSeqNum && m_relSeqNum < ack)
+  //   {
+  //     m_blseek += ack - m_relSeqNum;
+  //   }
+  //   else if (m_largestSeqNum < m_relSeqNum && ack <= m_largestSeqNum)
+  //   {
+  //     m_blseek += (MAX_SEQ_NUM - m_relSeqNum) + (ack - 0); 
+  //   }
+
+  //   m_relSeqNum = ack;
+  //   m_sequenceNumber = m_relSeqNum;
+  // }
+  // else 
+  // {
+    m_blseek += shiftedBytes;
+    m_relSeqNum += shiftedBytes;
+    m_relSeqNum %= MAX_SEQ_NUM + 1;
+  // }
+
 
   return shiftedBytes;
 }
@@ -390,11 +420,11 @@ int Client::markAck(TCPPacket *p)
   if (!validAck)
     return PACKET_DROPPED;
 
-  int windowEnd = m_packetBuffer.back()->getSeqNum();
+  // int windowEnd = m_packetBuffer.back()->getSeqNum();
 
   for (int i = 0; i < (int)m_packetBuffer.size(); i++)
   {
-    if (wrapAroundAck && m_packetBuffer[i]->getSeqNum() > windowEnd)
+    if (wrapAroundAck && m_packetBuffer[i]->getSeqNum() > m_largestSeqNum)
       m_packetACK[i] = true;
     else if (ack <= m_packetBuffer[i]->getSeqNum())
       break;
@@ -446,6 +476,8 @@ void Client::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
     message = "DROP";
 
   message = message + " " + std::to_string(p->getSeqNum()) + " " + std::to_string(p->getAckNum()) + " " + std::to_string(p->getConnId()) + " ";
+  if (!dropped)
+    message += std::to_string(m_cwnd) + " " + std::to_string(m_ssthresh) + " ";
   if (p->isACK())
     message += "ACK ";
   if (p->isSYN())
@@ -454,6 +486,8 @@ void Client::printPacket(TCPPacket *p, bool recvd, bool dropped, bool dup)
     message += "FIN ";
   if (dup && !recvd)
     message += "DUP ";
+
+  // message += "Payload: " + std::to_string(p->getPayloadLength()) + " ";
   message.pop_back(); // remove the trailing space
   std::cout << message << std::endl;
 }
@@ -862,6 +896,7 @@ bool Client::allPacketsAcked()
  */
 void Client::run()
 {
+
   using namespace std;
   handshake();
   while (true)
@@ -885,11 +920,10 @@ void Client::run()
     }
 
     addToBuffers(newPackets);
-    int packetsSent = sendPackets();
+    sendPackets();
     m_avlblwnd = 0;
     // recvs only 1 packet per iteration of the loop
     TCPPacket *p;
-    int i = 0;
     while ((p = recvPacket()) != nullptr)
     {
       setTimer(CONNECTION_TIMER); // received a message from the server, reset the connection timer
@@ -899,9 +933,12 @@ void Client::run()
 
       bool packetDropped = packetStatus == PACKET_DROPPED;
       printPacket(p, true, packetDropped, false);
-
-      int shifted = shiftWindow();
+      if (packetDropped) 
+        continue; 
+      int shifted = shiftWindow(p);
       int cwndChange = congestionControl();
+      if (packetDropped)
+        cwndChange = 0;
       m_avlblwnd = shifted + cwndChange;
       p = nullptr;
     }
