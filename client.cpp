@@ -726,7 +726,7 @@ void Client::addToBuffers(std::vector<TCPPacket *> packets)
  * 
  * The function then determines if a packet is a dup or not
  */
-int Client::sendPackets()
+void Client::sendPackets()
 {
   int count = 0;
   /* Assuming all 4 vectors are always of the same size */
@@ -754,8 +754,6 @@ int Client::sendPackets()
       printPacket(m_packetBuffer[i], false, false, isDuplicate);
     }
   }
-
-  return count;
 }
 
 /**
@@ -880,7 +878,7 @@ void Client::run()
     }
 
     addToBuffers(newPackets);
-    int packetsSent = sendPackets();
+    sendPackets();
     m_avlblwnd = 0;
     // recvs only 1 packet per iteration of the loop
     TCPPacket *p;
