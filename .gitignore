@@ -8,3 +8,4 @@ client
 test.cpp
 save*
 /w22-p2-student-test
+*.txt
