@@ -47,7 +47,7 @@ The Server program was made into a single high level class that handled all Serv
 The Server class stored the details of all connections using a TCP Connection Block (TCB Struct).
 ![](https://user-images.githubusercontent.com/66572285/156988958-8637bfb3-fb47-4c19-a705-c9c90e024838.png)
 
-The entrypoint to the Server was in the function handleConnection() which implemented the pseudocode described in the section above:
+The entrypoint to the Server was in the function `handleConnection()` which implemented the pseudocode described in the section above:
 ![](https://user-images.githubusercontent.com/66572285/156988946-d0763314-c581-4f61-9f8e-15a72f2de48d.png)
 
 
