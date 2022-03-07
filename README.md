@@ -42,14 +42,13 @@ Server and client functions, debugging, documentation, and design.
 
 ### **Design**
 The Server program was made into a single high level class that handled all Server related operations.
-![](https://codimd.s3.shivering-isles.com/demo/uploads/d5c47b5a5cbec5190d24e5a3d.png)
+![](https://user-images.githubusercontent.com/66572285/156988964-1a5972e2-6e79-4565-8440-aeee8ccc7a5f.png)
 
 The Server class stored the details of all connections using a TCP Connection Block (TCB Struct).
-![](https://codimd.s3.shivering-isles.com/demo/uploads/d5c47b5a5cbec5190d24e5a3e.png)
+![](https://user-images.githubusercontent.com/66572285/156988958-8637bfb3-fb47-4c19-a705-c9c90e024838.png)
 
-The entrypoint to the Server was in the function handleConnection() which implemented the pseudocode described in the section above to the following:
-![](https://codimd.s3.shivering-isles.com/demo/uploads/d5c47b5a5cbec5190d24e5a43.png)
-
+The entrypoint to the Server was in the function handleConnection() which implemented the pseudocode described in the section above:
+![](https://user-images.githubusercontent.com/66572285/156988946-d0763314-c581-4f61-9f8e-15a72f2de48d.png)
 
 
 ## **Client Implementation**
