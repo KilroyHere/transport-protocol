@@ -907,8 +907,6 @@ void Client::run()
   {
     // connection closing here were close due to timeout and will
     // not involve sending of any fin packets
-
-    //TODO: MAKE SURE YOU UNCOMMENT THIS PLEASE PLEASE PLEASE
     if (checkTimerAndCloseConnection())
       return;
     bool drop = checkTimersforDrop();
@@ -943,7 +941,7 @@ void Client::run()
       int cwndChange = congestionControl();
       if (packetDropped)
         cwndChange = 0;
-      m_avlblwnd = shifted + cwndChange;
+      m_avlblwnd += shifted + cwndChange;
       p = nullptr;
     }
   }
